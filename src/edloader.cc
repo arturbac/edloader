@@ -1,5 +1,6 @@
 // edloader — a d3d11.dll that chains several d3d11 proxies (EDVR, EDHM, edworld, ReShade...) in the order
-// listed in edloader.txt beside it, the way ASI loaders take a list of plugins.
+// listed in %USERPROFILE%\edloader\edloader.txt (one place outside the game's folder: see root_dir), the way ASI
+// loaders take a list of plugins.
 //
 // Every proxy in the list was written to BE d3d11.dll and to reach "the original" somehow. Those that ask for
 // "d3d11.dll" by name (3Dmigoto/EDHM, EDVR with advanced.real_dll = d3d11.dll, edworld with next = d3d11.dll)
@@ -56,6 +57,7 @@ namespace
   HMODULE self_module{};
   HMODULE system_module{};
   std::wstring module_dir;
+  std::wstring root_dir;  // holds edloader.txt and the folders plugins (the list's relative names), config, logs
   element_t system_element;
   std::vector<element_t> chain;
   std::FILE * log_file{};
@@ -131,7 +133,7 @@ namespace
     {
     std::wstring path{name};
     if(path.find(L':') == std::wstring::npos and path.find(L'\\') == std::wstring::npos)
-      path = module_dir + L"\\" + path;
+      path = root_dir + L"\\plugins\\" + path;
     return path;
     }
 
@@ -139,7 +141,7 @@ namespace
   /// `#` or `;` starts a comment
   auto load_list() -> void
     {
-    std::wstring const list_path{module_dir + L"\\edloader.txt"};
+    std::wstring const list_path{root_dir + L"\\edloader.txt"};
     std::FILE * f{_wfopen(list_path.c_str(), L"rb")};
     if(not f)
       {
@@ -192,12 +194,58 @@ namespace
     log_line("chain: game -> %zu proxy(ies) -> system d3d11.dll", chain.size());
     }
 
+  auto environment(wchar_t const * name) -> std::wstring
+    {
+    wchar_t value[MAX_PATH]{};
+    DWORD const n{GetEnvironmentVariableW(name, value, MAX_PATH)};
+    return n != 0 and n < MAX_PATH ? std::wstring{value, n} : std::wstring{};
+    }
+
+  auto make_dirs(std::wstring const & root) -> void
+    {
+    CreateDirectoryW(root.c_str(), nullptr);
+    CreateDirectoryW((root + L"\\config").c_str(), nullptr);
+    CreateDirectoryW((root + L"\\logs").c_str(), nullptr);
+    CreateDirectoryW((root + L"\\plugins").c_str(), nullptr);
+    }
+
+  ///\brief the one place: %USERPROFILE%\edloader, inside the wine prefix, which a verification of the game's files
+  /// never touches (it removes everything in the game's folder that is not the game's), so after one only
+  /// d3d11.dll has to be put back. EDLOADER_DIR replaces it for the lab; then the default log says so in one line,
+  /// so the place everyone looks first still shows where this run's files are.
+  auto find_root_dir() -> std::wstring
+    {
+    std::wstring const profile{environment(L"USERPROFILE")};
+    std::wstring const standard{profile.empty() ? module_dir : profile + L"\\edloader"};
+    std::wstring const lab{environment(L"EDLOADER_DIR")};
+    if(lab.empty())
+      return standard;
+    make_dirs(standard);
+    if(std::FILE * f{_wfopen((standard + L"\\logs\\edloader.log").c_str(), L"ab")})
+      {
+      SYSTEMTIME t;
+      GetSystemTime(&t);
+      std::fprintf(
+        f, "%04u-%02u-%02uT%02u:%02u:%02u.%03uZ EDLOADER_DIR=%S: this run's list, config and logs are there\n",
+        t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond, t.wMilliseconds, lab.c_str()
+      );
+      std::fclose(f);
+      }
+    return lab;
+    }
+
   INIT_ONCE init_once = INIT_ONCE_STATIC_INIT;
 
   BOOL CALLBACK init_callback(PINIT_ONCE, PVOID, PVOID *)
     {
-    log_file = _wfopen((module_dir + L"\\edloader.log").c_str(), L"ab");
+    root_dir = find_root_dir();
+    make_dirs(root_dir);
+    log_file = _wfopen((root_dir + L"\\logs\\edloader.log").c_str(), L"ab");
     log_line("edloader %s", EDLOADER_VERSION);
+    log_line("root: %S", root_dir.c_str());
+    // the plugins' own files: our plugins read these, without edloader they fall back to beside their dll
+    SetEnvironmentVariableW(L"EDLOADER_CONFIG_DIR", (root_dir + L"\\config").c_str());
+    SetEnvironmentVariableW(L"EDLOADER_LOG_DIR", (root_dir + L"\\logs").c_str());
     load_list();
     return TRUE;
     }

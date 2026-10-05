@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 # Builds edloader's d3d11.dll on Linux through msvc-wine. Exports as edworld (EDVR's generator, Windows list
 # read from a released EDVR d3d11.dll).   Usage: tools/build.sh   (output: build/d3d11.dll)
+# Environment: MSVC_WINE_ENV (msvc-wine's env.sh), RELEASE_DLL (a released EDVR d3d11.dll).
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")/.." && pwd)
-RELEASE_DLL=${RELEASE_DLL:-/ext/artur/ed-frontier/edvr-test-20261002/d3d11.dll}
-source /ext/artur/msvc-wine/env.sh
+need() { [[ -n ${!1:-} ]] || { echo "$0: set $1 ($2)" >&2; exit 1; }; }
+need MSVC_WINE_ENV "msvc-wine's env.sh"
+need RELEASE_DLL "a released EDVR d3d11.dll: its export list"
+source "$MSVC_WINE_ENV"
 cd "$HERE"
 VER="$(git describe --tags --always --dirty 2>/dev/null || echo dev)"
 mkdir -p build/gen

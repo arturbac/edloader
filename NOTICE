@@ -1,0 +1,15 @@
+edloader
+Copyright (c) 2026 Artur Bać
+
+edloader contains or builds on the following third-party work.
+
+EDVR unofficial patch — https://github.com/characterecho-sean/edvr-unofficial-patch
+  MIT License, Copyright (c) 2026 characterecho-sean. Full text: tools/EDVR-LICENSE.txt
+  - tools/gen_exports.py: EDVR's export thunk generator, copied unchanged; build/gen/edvr_* are its output,
+    and src/edloader.cc uses the edvr_* names it generates. tools/gen_exports_from_release.py (edloader's own)
+    runs it on the export list of a released EDVR d3d11.dll at build time; no EDVR binary is part of edloader.
+  - src/edloader.cc: the proxy loading discipline of EDVR's src/d3d11/d3d11_proxy.cpp (system copy loaded in
+    DllMain, the rest on the first export call).
+
+Elite Dangerous is a trademark of Frontier Developments plc. edloader is not affiliated with or endorsed by
+Frontier Developments.
