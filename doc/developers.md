@@ -41,7 +41,7 @@ How edloader chains d3d11 proxies, what a plugin can rely on, and how edloader i
 
 - `MSVC_WINE_ENV`: msvc-wine's `env.sh`;
 - `RELEASE_DLL`: a released EDVR `d3d11.dll`, whose export list EDVR's generator (`tools/gen_exports.py`, MIT,
-  unchanged) turns into the export thunks. No EDVR code or binary becomes part of edloader.
+  unchanged) turns into the export thunks; no EDVR binary becomes part of edloader.
 
 The version in the log is `git describe` of the tree it was built from.
 
