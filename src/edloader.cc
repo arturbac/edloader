@@ -21,6 +21,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <iterator>
 #include <mutex>
 #include <string>
 #include <string_view>
@@ -343,6 +344,119 @@ namespace
       }
     }
 
+  // ---- the loader's functions as other modules import them ----
+  // A dll can hand out itself for d3d11.dll by rewriting other modules' imports of LoadLibrary* and GetProcAddress
+  // (their import address tables), which leaves kernelbase's own bytes as they were. After the list is loaded and at
+  // each device the game asks for, every module's imports of them are compared with the real functions; an import
+  // leading elsewhere is logged and put back, unless the list accepts takeovers.
+  constexpr char const * loader_functions[]{"LoadLibraryA", "LoadLibraryW", "LoadLibraryExA", "LoadLibraryExW", "GetProcAddress"};
+
+  ///\brief an export's address read from the module's export table in memory (no GetProcAddress, which may be hooked);
+  /// a forwarder ("KERNELBASE.LoadLibraryW") is followed once
+  auto export_address(HMODULE module, char const * name, int depth = 0) -> void *
+    {
+    if(not module or depth > 2)
+      return nullptr;
+    auto const base{reinterpret_cast<std::uint8_t const *>(module)};
+    auto const nt{reinterpret_cast<IMAGE_NT_HEADERS const *>(base + reinterpret_cast<IMAGE_DOS_HEADER const *>(base)->e_lfanew)};
+    IMAGE_DATA_DIRECTORY const & ed{nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT]};
+    if(ed.VirtualAddress == 0)
+      return nullptr;
+    auto const exp{reinterpret_cast<IMAGE_EXPORT_DIRECTORY const *>(base + ed.VirtualAddress)};
+    auto const names{reinterpret_cast<DWORD const *>(base + exp->AddressOfNames)};
+    auto const ords{reinterpret_cast<WORD const *>(base + exp->AddressOfNameOrdinals)};
+    auto const funcs{reinterpret_cast<DWORD const *>(base + exp->AddressOfFunctions)};
+    for(DWORD i{}; i != exp->NumberOfNames; ++i)
+      {
+      if(std::strcmp(reinterpret_cast<char const *>(base + names[i]), name) != 0)
+        continue;
+      DWORD const rva{funcs[ords[i]]};
+      if(rva >= ed.VirtualAddress and rva < ed.VirtualAddress + ed.Size)
+        {
+        std::string_view const forward{reinterpret_cast<char const *>(base + rva)};
+        auto const dot{forward.find('.')};
+        if(dot == std::string_view::npos)
+          return nullptr;
+        std::string dll{forward.substr(0, dot)};
+        dll += ".dll";
+        std::string const function{forward.substr(dot + 1)};
+        return export_address(GetModuleHandleA(dll.c_str()), function.c_str(), depth + 1);
+        }
+      return const_cast<std::uint8_t *>(base + rva);
+      }
+    return nullptr;
+    }
+
+  ///\brief every module's imports of the loader's functions: logged when they lead past kernel32/kernelbase, put back
+  /// unless accept_takeover; once a frame of device calls at most
+  auto sweep_loader_imports(char const * when) noexcept -> void
+    {
+    HMODULE const kernel32{GetModuleHandleW(L"kernel32.dll")}, kernelbase{GetModuleHandleW(L"kernelbase.dll")};
+    void * real[std::size(loader_functions)]{};
+    void * stub[std::size(loader_functions)]{};
+    for(std::size_t i{}; i != std::size(loader_functions); ++i)
+      {
+      real[i] = export_address(kernelbase, loader_functions[i]);
+      stub[i] = export_address(kernel32, loader_functions[i]);
+      if(not real[i])
+        real[i] = stub[i];
+      }
+    HANDLE const snap{CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, GetCurrentProcessId())};
+    if(snap == INVALID_HANDLE_VALUE)
+      return;
+    MODULEENTRY32W m{};
+    m.dwSize = sizeof m;
+    for(BOOL ok{Module32FirstW(snap, &m)}; ok; ok = Module32NextW(snap, &m))
+      {
+      auto const base{m.modBaseAddr};
+      auto const nt{reinterpret_cast<IMAGE_NT_HEADERS const *>(base + reinterpret_cast<IMAGE_DOS_HEADER const *>(base)->e_lfanew)};
+      IMAGE_DATA_DIRECTORY const & dir{nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT]};
+      if(dir.VirtualAddress == 0)
+        continue;
+      for(auto desc{reinterpret_cast<IMAGE_IMPORT_DESCRIPTOR const *>(base + dir.VirtualAddress)}; desc->Name; ++desc)
+        {
+        if(not desc->OriginalFirstThunk)
+          continue;  // names gone: nothing to tell the functions by
+        auto names{reinterpret_cast<IMAGE_THUNK_DATA const *>(base + desc->OriginalFirstThunk)};
+        auto slots{reinterpret_cast<IMAGE_THUNK_DATA *>(base + desc->FirstThunk)};
+        for(; names->u1.AddressOfData; ++names, ++slots)
+          {
+          if(IMAGE_SNAP_BY_ORDINAL(names->u1.Ordinal))
+            continue;
+          char const * const fn{reinterpret_cast<IMAGE_IMPORT_BY_NAME const *>(base + names->u1.AddressOfData)->Name};
+          for(std::size_t i{}; i != std::size(loader_functions); ++i)
+            {
+            if(std::strcmp(fn, loader_functions[i]) != 0 or not real[i])
+              continue;
+            void * const now{reinterpret_cast<void *>(slots->u1.Function)};
+            if(now == real[i] or now == stub[i])
+              break;
+            std::wstring const to{module_of(now)};
+            if(_wcsicmp(to.c_str(), m.szModule) == 0)
+              break;  // the module's own wrapper of its own import: not a takeover of others
+            std::string const what{std::string{when} + ": " + narrow(m.szModule) + "'s import of " + fn + " leads to " + narrow(to)};
+            if(accept_takeover)
+              {
+              log_line("TAKEOVER: %s; accepted, left as it is", what.c_str());
+              break;
+              }
+            DWORD old{};
+            if(VirtualProtect(&slots->u1.Function, sizeof(void *), PAGE_READWRITE, &old))
+              {
+              slots->u1.Function = reinterpret_cast<ULONG_PTR>(real[i]);
+              VirtualProtect(&slots->u1.Function, sizeof(void *), old, &old);
+              log_line("TAKEOVER: %s; put back to the real %s", what.c_str(), fn);
+              }
+            else
+              log_line("TAKEOVER: %s; could not be put back (error %lu)", what.c_str(), GetLastError());
+            break;
+            }
+          }
+        }
+      }
+    CloseHandle(snap);
+    }
+
   ///\brief the first bytes of an exported function as the dll's file on disk has them; false when they cannot be
   /// compared (not found, forwarded, or a relocation inside them)
   auto bytes_on_disk(std::wstring const & path, char const * function, std::uint8_t (&out)[16], std::wstring & why) -> bool
@@ -638,6 +752,7 @@ namespace
     SetEnvironmentVariableW(L"EDLOADER_LOG_DIR", (root_dir + L"\\logs").c_str());
     start_takers();
     load_list();
+    sweep_loader_imports("after the list");
     if(takeover and accept_takeover and stopped)
       {
       stopped = false;  // found before the list's accept_takeover was read
@@ -725,6 +840,7 @@ extern "C" HRESULT WINAPI edvr_impl_D3D11CreateDevice(
     entered = 0;
     check_takers("at D3D11CreateDevice");
     check_loader("at D3D11CreateDevice");
+    sweep_loader_imports("at D3D11CreateDevice");
     }
   element_t const & target{route(_ReturnAddress(), "D3D11CreateDevice")};
   if(not target.create)
@@ -763,6 +879,7 @@ extern "C" HRESULT WINAPI edvr_impl_D3D11CreateDeviceAndSwapChain(
     entered = 0;
     check_takers("at D3D11CreateDeviceAndSwapChain");
     check_loader("at D3D11CreateDeviceAndSwapChain");
+    sweep_loader_imports("at D3D11CreateDeviceAndSwapChain");
     }
   element_t const * target{&route(_ReturnAddress(), "D3D11CreateDeviceAndSwapChain")};
   // An element without the swap-chain export cannot take this call; the next one that has it does.
