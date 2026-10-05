@@ -16,7 +16,9 @@
 #include <intrin.h>
 
 #include <cstdarg>
+#include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <mutex>
 #include <string>
 #include <string_view>
@@ -137,6 +139,140 @@ namespace
     return path;
     }
 
+  // ---- who else takes the game's calls: the game's imports of d3d11 and the system copy's first bytes ----
+  // A dll can take the game's d3d11 calls past the list: by rewriting the game's import of them (the exe's import
+  // address table) or by overwriting the first bytes of the system copy's functions (an inline hook), typically from
+  // its DllMain while edloader loads it. Both are checked after each dll of the list and at each device the game
+  // asks for, and every change is logged with the module it now leads to.
+  struct watched_import_t
+    {
+    char const * name;
+    void ** slot;                 ///< the game's import slot; null when the game does not import it by name
+    void * last;                  ///< what the slot held at the last check
+    std::uint8_t prologue[16];    ///< the system copy's first bytes at the last check
+    void * system;                ///< the system copy's function
+    };
+
+  watched_import_t watched_imports[2]{{"D3D11CreateDevice", nullptr, nullptr, {}, nullptr},
+                                      {"D3D11CreateDeviceAndSwapChain", nullptr, nullptr, {}, nullptr}};
+
+  ///\brief the module an address lies in, by name; "?" when none
+  auto module_of(void const * address) -> std::wstring
+    {
+    HMODULE m{};
+    if(not address or not GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                                             static_cast<LPCWSTR>(address), &m))
+      return L"?";
+    wchar_t path[MAX_PATH]{};
+    GetModuleFileNameW(m, path, MAX_PATH);
+    std::wstring name{path};
+    if(auto const slash{name.find_last_of(L"\\/")}; slash != std::wstring::npos)
+      name.erase(0, slash + 1);
+    return name;
+    }
+
+  ///\brief where a jump at the start of a function leads (E9 rel32, FF 25 [rip+rel32], 48 B8 imm64 + FF E0); null if none
+  auto jump_target(std::uint8_t const * p) -> void const *
+    {
+    if(p[0] == 0xE9)
+      {
+      std::int32_t rel;
+      std::memcpy(&rel, p + 1, 4);
+      return p + 5 + rel;
+      }
+    if(p[0] == 0xFF and p[1] == 0x25)
+      {
+      std::int32_t rel;
+      std::memcpy(&rel, p + 2, 4);
+      void const * target;
+      std::memcpy(&target, p + 6 + rel, sizeof target);
+      return target;
+      }
+    if(p[0] == 0x48 and p[1] == 0xB8 and p[10] == 0xFF and p[11] == 0xE0)
+      {
+      void const * target;
+      std::memcpy(&target, p + 2, sizeof target);
+      return target;
+      }
+    return nullptr;
+    }
+
+  ///\brief the game exe's import slots of the two device functions from d3d11.dll, once
+  auto find_game_imports() -> void
+    {
+    auto const base{reinterpret_cast<std::uint8_t *>(GetModuleHandleW(nullptr))};
+    auto const dos{reinterpret_cast<IMAGE_DOS_HEADER const *>(base)};
+    auto const nt{reinterpret_cast<IMAGE_NT_HEADERS const *>(base + dos->e_lfanew)};
+    IMAGE_DATA_DIRECTORY const & dir{nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT]};
+    if(dir.VirtualAddress == 0)
+      return;
+    for(auto desc{reinterpret_cast<IMAGE_IMPORT_DESCRIPTOR const *>(base + dir.VirtualAddress)}; desc->Name; ++desc)
+      {
+      if(_stricmp(reinterpret_cast<char const *>(base + desc->Name), "d3d11.dll") != 0)
+        continue;
+      auto names{reinterpret_cast<IMAGE_THUNK_DATA const *>(base + (desc->OriginalFirstThunk ? desc->OriginalFirstThunk : desc->FirstThunk))};
+      auto slots{reinterpret_cast<IMAGE_THUNK_DATA *>(base + desc->FirstThunk)};
+      for(; names->u1.AddressOfData; ++names, ++slots)
+        {
+        if(IMAGE_SNAP_BY_ORDINAL(names->u1.Ordinal))
+          continue;
+        auto const by_name{reinterpret_cast<IMAGE_IMPORT_BY_NAME const *>(base + names->u1.AddressOfData)};
+        for(watched_import_t & w: watched_imports)
+          if(std::strcmp(reinterpret_cast<char const *>(by_name->Name), w.name) == 0)
+            w.slot = reinterpret_cast<void **>(&slots->u1.Function);
+        }
+      }
+    }
+
+  ///\brief compares the game's import slots and the system copy's first bytes with the last check; logs changes
+  auto check_takers(char const * when) noexcept -> void
+    {
+    for(watched_import_t & w: watched_imports)
+      {
+      if(w.slot)
+        {
+        void * const now{*w.slot};
+        if(now != w.last)
+          {
+          log_line("%s: the game's import of %s now leads to %S (%p)", when, w.name, module_of(now).c_str(), now);
+          w.last = now;
+          }
+        }
+      if(w.system)
+        {
+        std::uint8_t now[16];
+        std::memcpy(now, w.system, sizeof now);
+        if(std::memcmp(now, w.prologue, sizeof now) != 0)
+          {
+          void const * const to{jump_target(now)};
+          log_line("%s: the system d3d11's %s starts differently now%s%S", when, w.name, to ? ", a jump to " : " (no jump read)",
+                   to ? module_of(to).c_str() : L"");
+          std::memcpy(w.prologue, now, sizeof now);
+          }
+        }
+      }
+    }
+
+  ///\brief the starting point of the checks: where the game's imports lead and the system copy's first bytes
+  auto start_takers() noexcept -> void
+    {
+    find_game_imports();
+    watched_imports[0].system = reinterpret_cast<void *>(system_element.create);
+    watched_imports[1].system = reinterpret_cast<void *>(system_element.create_swap);
+    for(watched_import_t & w: watched_imports)
+      {
+      if(w.system)
+        std::memcpy(w.prologue, w.system, sizeof w.prologue);
+      if(w.slot)
+        {
+        w.last = *w.slot;
+        log_line("the game imports %s from d3d11.dll; it leads to %S", w.name, module_of(w.last).c_str());
+        }
+      else
+        log_line("the game does not import %s by name from d3d11.dll", w.name);
+      }
+    }
+
   ///\brief edloader.txt: one dll per line, in call order from the game; `+name` = load only (not a d3d11 proxy);
   /// `#` or `;` starts a comment
   auto load_list() -> void
@@ -175,6 +311,10 @@ namespace
         log_line("%S: cannot load (error %lu); skipped", path.c_str(), GetLastError());
         continue;
         }
+      {
+      std::string const label{"after loading " + std::string{text}};
+      check_takers(label.c_str());
+      }
       if(plain)
         {
         log_line("%S: loaded (plugin, not chained)", name.c_str());
@@ -246,6 +386,7 @@ namespace
     // the plugins' own files: our plugins read these, without edloader they fall back to beside their dll
     SetEnvironmentVariableW(L"EDLOADER_CONFIG_DIR", (root_dir + L"\\config").c_str());
     SetEnvironmentVariableW(L"EDLOADER_LOG_DIR", (root_dir + L"\\logs").c_str());
+    start_takers();
     load_list();
     return TRUE;
     }
@@ -323,14 +464,18 @@ extern "C" HRESULT WINAPI edvr_impl_D3D11CreateDevice(
   ensure_initialised();
   depth_guard_t const guard;
   if(depth == 1)
+    {
     entered = 0;
+    check_takers("at D3D11CreateDevice");
+    }
   element_t const & target{route(_ReturnAddress(), "D3D11CreateDevice")};
   if(not target.create)
     return E_FAIL;
   HRESULT const hr{target.create(adapter, driver_type, software, flags, levels, level_count, sdk, device, level, context)};
   if(depth == 1)
     {
-    log_line("D3D11CreateDevice: hr 0x%08lX through %zu element(s)", static_cast<unsigned long>(hr), chain.size());
+    log_line("D3D11CreateDevice: hr 0x%08lX through %zu element(s), device %s", static_cast<unsigned long>(hr), chain.size(),
+             device == nullptr ? "not asked" : SUCCEEDED(hr) and *device ? "made" : "asked, none made");
     report_shortcuts();
     }
   return hr;
@@ -354,7 +499,10 @@ extern "C" HRESULT WINAPI edvr_impl_D3D11CreateDeviceAndSwapChain(
   ensure_initialised();
   depth_guard_t const guard;
   if(depth == 1)
+    {
     entered = 0;
+    check_takers("at D3D11CreateDeviceAndSwapChain");
+    }
   element_t const * target{&route(_ReturnAddress(), "D3D11CreateDeviceAndSwapChain")};
   // An element without the swap-chain export cannot take this call; the next one that has it does.
   while(target != &system_element and not target->create_swap)
@@ -368,7 +516,11 @@ extern "C" HRESULT WINAPI edvr_impl_D3D11CreateDeviceAndSwapChain(
     adapter, driver_type, software, flags, levels, level_count, sdk, swap_desc, swap, device, level, context
   )};
   if(depth == 1)
+    {
+    log_line("D3D11CreateDeviceAndSwapChain: hr 0x%08lX, first to %S", static_cast<unsigned long>(hr),
+             target == &system_element ? L"the system d3d11.dll" : target->name.c_str());
     report_shortcuts();
+    }
   return hr;
   }
 
