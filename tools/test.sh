@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Chain test without the game: game (edworld's test_app) -> edloader -> fake_a -> fake_b -> edworld -> system.
+# edworld = its build for anyone (build/edworld/edworld.dll), not the one that works with EHT.
 # Needs tools/build.sh here and, in an edworld checkout, tools/build.sh and tools/test.sh once (test_app.exe).
 # Environment: MSVC_WINE_ENV (msvc-wine's env.sh), EDWORLD_DIR (that edworld checkout), EDWORLD_WINEPREFIX (a wine
 # prefix kept warm between runs).
@@ -24,9 +25,9 @@ RUN=$(mktemp -d "$SCR/edloader-test.XXXXXX")
 # the one place, here moved by EDLOADER_DIR (the lab's override): edloader.txt, plugins\, config\, logs\
 GAME=$RUN/game ROOT=$RUN/root ELSEWHERE=$RUN/elsewhere
 mkdir -p "$GAME" "$ROOT/plugins" "$ELSEWHERE"
-cp build/d3d11.dll "$EDW/build/test/test_app.exe" "$GAME/"
+cp build/d3d11.dll "$EDW/build/test/edworld/test_app.exe" "$GAME/"
 cp build/test/fake_a.dll build/test/fake_b.dll "$ROOT/plugins/"
-cp "$EDW/build/d3d11.dll" "$ELSEWHERE/edworld.dll"
+cp "$EDW/build/edworld/edworld.dll" "$ELSEWHERE/"
 win() { echo "Z:${1//\//\\}"; }
 printf '# test chain\nfake_a.dll\nfake_b.dll   ; by name back to edloader\n%s   ; an absolute path\n' \
   "$(win "$ELSEWHERE/edworld.dll")" > "$ROOT/edloader.txt"
