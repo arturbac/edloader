@@ -811,7 +811,7 @@ namespace
     log_file = _wfopen((root_dir + L"\\logs\\edloader.log").c_str(), L"ab");
     log_line("edloader %s", EDLOADER_VERSION);
     log_line("root: %S", root_dir.c_str());
-    // the plugins' own files: our plugins read these, without edloader they fall back to beside their dll
+    // the plugins' own files: plugins made for edloader read these, without edloader they fall back to beside their dll
     SetEnvironmentVariableW(L"EDLOADER_CONFIG_DIR", (root_dir + L"\\config").c_str());
     SetEnvironmentVariableW(L"EDLOADER_LOG_DIR", (root_dir + L"\\logs").c_str());
     start_takers();
@@ -829,7 +829,7 @@ namespace
   auto ensure_initialised() noexcept -> void { InitOnceExecuteOnce(&init_once, init_callback, nullptr, nullptr); }
 
   thread_local int depth{};
-  thread_local std::uint32_t entered{};  // bit i: chain[i] called back into us during the outermost call
+  thread_local std::uint32_t entered{};  // bit i: chain[i] called back into edloader during the outermost call
 
   struct depth_guard_t
     {

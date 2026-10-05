@@ -8,7 +8,8 @@ each still made to be the game's `d3d11.dll`: edloader takes the name and calls 
   game's files, removing it.
 - Developers: [doc/developers.md](doc/developers.md): how the chain is wired, what a plugin gets, build and test.
 
-Status: tested under wine without the game (`tools/test.sh`); not yet run in the game.
+Status: tested under wine without the game (`tools/test.sh`), and in the game under Proton (Steam) with
+edworld_eht and EDHM (3Dmigoto) in the list.
 
 MIT licence (LICENSE). edloader builds on the work of the
 [EDVR unofficial patch](https://github.com/characterecho-sean/edvr-unofficial-patch) team (MIT): the proxy loading
