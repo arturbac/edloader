@@ -260,6 +260,56 @@ namespace
       }
     }
 
+  // ---- the loader's own functions: a dll that hooks them hands out itself for d3d11.dll ----
+  struct watched_loader_t
+    {
+    char const * name;
+    void * function;           ///< in kernelbase
+    std::uint8_t prologue[16];
+    };
+
+  watched_loader_t watched_loader[3]{{"LoadLibraryExW", nullptr, {}}, {"LoadLibraryW", nullptr, {}}, {"GetProcAddress", nullptr, {}}};
+  void * own_create{};          ///< edloader's own D3D11CreateDevice export
+
+  ///\brief what LoadLibrary("d3d11.dll") and GetProcAddress hand out now: edloader itself, unless someone redirects them
+  auto check_loader(char const * when) noexcept -> void
+    {
+    for(watched_loader_t & w: watched_loader)
+      {
+      if(not w.function)
+        continue;
+      std::uint8_t now[16];
+      std::memcpy(now, w.function, sizeof now);
+      if(std::memcmp(now, w.prologue, sizeof now) != 0)
+        {
+        void const * const to{jump_target(now)};
+        log_line("%s: kernelbase's %s starts differently now%s%S", when, w.name, to ? ", a jump to " : " (no jump read)",
+                 to ? module_of(to).c_str() : L"");
+        take_over(std::string{when} + ": kernelbase's " + w.name + " was hooked inline" +
+                  (to ? " (a jump to " + narrow(module_of(to)) + ")" : std::string{}));
+        std::memcpy(w.prologue, now, sizeof now);
+        }
+      }
+    // What a bare "d3d11.dll" resolves to from here, logged when it changes but no takeover by itself: the loader's
+    // search may hand out the system copy once a dll of the list loaded it by its full path (seen under wine)
+    HMODULE const by_name{LoadLibraryW(L"d3d11.dll")};
+    void * const create{by_name ? reinterpret_cast<void *>(GetProcAddress(by_name, "D3D11CreateDevice")) : nullptr};
+    static HMODULE last_by_name{};
+    static void * last_create{};
+    if(by_name != last_by_name or create != last_create)
+      {
+      last_by_name = by_name;
+      last_create = create;
+      wchar_t got[MAX_PATH]{};
+      if(by_name)
+        GetModuleFileNameW(by_name, got, MAX_PATH);
+      log_line("%s: LoadLibrary(\"d3d11.dll\") from edloader gives %S%s; its D3D11CreateDevice is in %S", when, got,
+               by_name == self_module ? " (edloader)" : "", module_of(create).c_str());
+      }
+    if(by_name)
+      FreeLibrary(by_name);
+    }
+
   ///\brief compares the game's import slots and the system copy's first bytes with the last check; logs changes
   auto check_takers(char const * when) noexcept -> void
     {
@@ -395,6 +445,32 @@ namespace
     {
     log_modules();
     find_game_imports();
+    own_create = reinterpret_cast<void *>(GetProcAddress(self_module, "D3D11CreateDevice"));
+    if(HMODULE const kernelbase{GetModuleHandleW(L"kernelbase.dll")})
+      {
+      wchar_t path[MAX_PATH]{};
+      GetModuleFileNameW(kernelbase, path, MAX_PATH);
+      for(watched_loader_t & w: watched_loader)
+        {
+        w.function = reinterpret_cast<void *>(GetProcAddress(kernelbase, w.name));
+        if(not w.function)
+          continue;
+        std::memcpy(w.prologue, w.function, sizeof w.prologue);
+        std::uint8_t disk[16];
+        std::wstring why;
+        if(not bytes_on_disk(path, w.name, disk, why))
+          log_line("kernelbase's %s cannot be compared with its file (%S)", w.name, why.c_str());
+        else if(std::memcmp(disk, w.prologue, sizeof disk) != 0)
+          {
+          void const * const to{jump_target(w.prologue)};
+          take_over(std::string{"before edloader started: kernelbase's "} + w.name + " differs from its file" +
+                    (to ? " (a jump to " + narrow(module_of(to)) + ")" : std::string{}));
+          }
+        else
+          log_line("kernelbase's %s is as its file has it", w.name);
+        }
+      }
+    check_loader("at start");
     watched_imports[0].system = reinterpret_cast<void *>(system_element.create);
     watched_imports[1].system = reinterpret_cast<void *>(system_element.create_swap);
     for(watched_import_t & w: watched_imports)
@@ -487,6 +563,7 @@ namespace
       {
       std::string const label{"after loading " + std::string{text}};
       check_takers(label.c_str());
+      check_loader(label.c_str());
       }
       if(plain)
         {
@@ -647,6 +724,7 @@ extern "C" HRESULT WINAPI edvr_impl_D3D11CreateDevice(
     {
     entered = 0;
     check_takers("at D3D11CreateDevice");
+    check_loader("at D3D11CreateDevice");
     }
   element_t const & target{route(_ReturnAddress(), "D3D11CreateDevice")};
   if(not target.create)
@@ -682,6 +760,7 @@ extern "C" HRESULT WINAPI edvr_impl_D3D11CreateDeviceAndSwapChain(
     {
     entered = 0;
     check_takers("at D3D11CreateDeviceAndSwapChain");
+    check_loader("at D3D11CreateDeviceAndSwapChain");
     }
   element_t const * target{&route(_ReturnAddress(), "D3D11CreateDeviceAndSwapChain")};
   // An element without the swap-chain export cannot take this call; the next one that has it does.
