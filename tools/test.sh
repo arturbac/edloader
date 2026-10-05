@@ -25,7 +25,7 @@ RUN=$(mktemp -d "$SCR/edloader-test.XXXXXX")
 # the one place, here moved by EDLOADER_DIR (the lab's override): edloader.txt, plugins\, config\, logs\
 GAME=$RUN/game ROOT=$RUN/root ELSEWHERE=$RUN/elsewhere
 mkdir -p "$GAME" "$ROOT/plugins" "$ELSEWHERE"
-cp build/d3d11.dll "$EDW/build/test/edworld/test_app.exe" "$GAME/"
+cp build/d3d11.dll "$EDW/build/test/edworld/test_app.exe" "$EDW/test/data/edsm_factions_shinrarta.json" "$GAME/"
 cp build/test/fake_a.dll build/test/fake_b.dll "$ROOT/plugins/"
 cp "$EDW/build/edworld/edworld.dll" "$ELSEWHERE/"
 win() { echo "Z:${1//\//\\}"; }
