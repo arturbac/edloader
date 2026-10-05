@@ -21,6 +21,25 @@ How edloader chains d3d11 proxies, what a plugin can rely on, and how edloader i
 - A nested call from a module not in the list (for example a dll an element loads by its own path) goes to the
   system copy, never back into the chain.
 
+## Takeovers
+
+A dll in the list runs its own code the moment edloader loads it (C++ static constructors and `DllMain`). It can
+take the game's d3d11 calls past the list from there: by rewriting the game exe's import of `D3D11CreateDevice`, or
+by an inline hook on the system copy's function. edloader cannot prevent either, so it watches for them:
+
+- At start it logs the modules already in the process, where the game's imports of `D3D11CreateDevice` and
+  `D3D11CreateDeviceAndSwapChain` lead, and compares the system copy's first 16 bytes of each with the dll's file
+  on disk (export table, file offset; a relocation inside those bytes makes them not comparable, and says so). A
+  hook made before edloader started shows there.
+- After each dll of the list and at each device the game asks for, it compares the import and the bytes with the
+  last check; a change is a `TAKEOVER:` line naming the module the import or the jump now leads to.
+- On a takeover edloader stops: every call goes to the system copy, no element of the list is called. The line
+  `accept_takeover = true` in `edloader.txt` (settings are read before any dll is loaded) keeps the list passed on,
+  with the takeover logged. A plugin that takes over is then best first in the list: its own calls to `d3d11.dll`
+  by name come from the first element and go on down the list.
+
+`test/fake_intruder.cc` is such a dll: it rewrites the game's import in its `DllMain`; the test checks both cases.
+
 ## What a plugin gets
 
 - Its dll in `%USERPROFILE%\edloader\plugins` (a relative name in the list is taken from there).

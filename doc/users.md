@@ -24,6 +24,8 @@ the mods one after another, in the order you list them in a text file.
    d3d11_edhm.dll
    ```
 
+   A line with `=` is a setting, not a mod; the only one is `accept_takeover` (below).
+
    A name alone is taken from `edloader\plugins`; a full path (`D:\mods\x.dll`) is taken as it is. A line starting
    with `+` loads a dll that is not a d3d11 mod (it is loaded, nothing is passed to it).
 6. Each mod still reads its own settings. edworld reads `edworld.ini` from `edloader\config` and writes its log to
@@ -41,6 +43,20 @@ list, that setting must say `d3d11.dll` (the name, not a path to the system's co
 
 A mod pointed at the system's copy ends the list there: the mods after it are not used, and `edloader.log` says
 `did not call on` with the mod's name.
+
+## A mod that takes the game's calls itself
+
+Some mods do not wait to be called: the moment they are loaded they rewire the game so that its d3d11 calls go
+straight to them, past the list. edloader notices this (the game's import of `D3D11CreateDevice` now leading to
+that mod, or the system d3d11 changed) and **stops**: its log says `TAKEOVER:` with the mod's name, and the game
+runs with no mod of the list called by edloader. Then either remove that mod from the list, or put it **first** in
+the list and add the line
+
+```
+accept_takeover = true
+```
+
+to `edloader.txt`: edloader logs the takeover and still passes the calls on down the list, at your own risk.
 
 ## Check that it works
 

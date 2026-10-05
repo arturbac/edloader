@@ -21,6 +21,8 @@ for n in a b; do
      /Fobuild/test/fake_$n.obj /Febuild/test/fake_$n.dll test/fake_proxy.cc \
      /link /EXPORT:D3D11CreateDevice=fake_D3D11CreateDevice >/dev/null
 done
+cl /nologo /O2 /MT /LD /std:c++latest /W4 /DWIN32_LEAN_AND_MEAN /D_CRT_SECURE_NO_WARNINGS \
+   /Fobuild/test/fake_intruder.obj /Febuild/test/fake_intruder.dll test/fake_intruder.cc >/dev/null
 RUN=$(mktemp -d "$SCR/edloader-test.XXXXXX")
 # the one place, here moved by EDLOADER_DIR (the lab's override): edloader.txt, plugins\, config\, logs\
 GAME=$RUN/game ROOT=$RUN/root ELSEWHERE=$RUN/elsewhere
@@ -57,4 +59,26 @@ for f in edloader.log edworld.log edloader.txt; do [[ ! -e $GAME/$f ]] || fail "
 PROFILE=$(wine cmd /c echo %USERPROFILE% 2>/dev/null | tr -d '\r')
 DEFAULT_LOG=$(winepath -u "$PROFILE\\edloader\\logs\\edloader.log" 2>/dev/null)
 grep -qF "EDLOADER_DIR=$EDLOADER_DIR:" "$DEFAULT_LOG" || fail "no EDLOADER_DIR line in $DEFAULT_LOG"
+# a dll that takes the game's import in its DllMain: edloader says so and stops, unless the list accepts it
+cp "$HERE/build/test/fake_intruder.dll" "$ROOT/plugins/"
+for accept in no yes; do
+  : > order.txt
+  : > "$ROOT/logs/edloader.log"
+  printf '+fake_intruder.dll\nfake_a.dll\n' > "$ROOT/edloader.txt"
+  if [[ $accept == yes ]]; then echo "accept_takeover = true" >> "$ROOT/edloader.txt"; fi
+  set +e
+  wine test_app.exe > test_app_$accept.out
+  set -e
+  echo "--- edloader.log, intruder, accept $accept"; cat "$ROOT/logs/edloader.log"
+  grep -q "TAKEOVER: after loading fake_intruder.dll: fake_intruder.dll took the game's import of D3D11CreateDevice" \
+    "$ROOT/logs/edloader.log" || fail "the intruder named (accept $accept)"
+  if [[ $accept == no ]]; then
+    grep -q "edloader stops" "$ROOT/logs/edloader.log" || fail "edloader stops at an intruder"
+    [[ ! -s order.txt ]] || fail "the list called after a takeover"
+  else
+    grep -q "accepted (accept_takeover = true)" "$ROOT/logs/edloader.log" || fail "accept_takeover"
+    ! grep -q "edloader stops" "$ROOT/logs/edloader.log" || fail "edloader stopped although the list accepts a takeover"
+    [[ $(tr '\n' ' ' < order.txt) == "fake_a "* ]] || fail "the list not called with accept_takeover"
+  fi
+done
 echo "chain test PASSED"

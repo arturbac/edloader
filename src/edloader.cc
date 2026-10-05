@@ -12,6 +12,8 @@
 // under the loader lock); the list is loaded on the first export call.
 #include <windows.h>
 
+#include <tlhelp32.h>
+
 #include <d3d11.h>
 #include <intrin.h>
 
@@ -153,8 +155,42 @@ namespace
     void * system;                ///< the system copy's function
     };
 
+  ///\brief a dll took the game's d3d11 calls past the list (or something had before edloader started): edloader
+  /// stops passing calls down the list unless the list accepts it (`accept_takeover = true` in edloader.txt)
+  bool takeover{};
+  bool accept_takeover{};
+  bool stopped{};
+
+  ///\brief what made edloader stop, said once
+  auto take_over(std::string const & what) noexcept -> void
+    {
+    takeover = true;
+    if(accept_takeover)
+      {
+      log_line("TAKEOVER: %s; accepted (accept_takeover = true): the list is passed on, at your own risk", what.c_str());
+      return;
+      }
+    if(not stopped)
+      {
+      stopped = true;
+      log_line("TAKEOVER: %s. edloader stops: every call goes to the system d3d11.dll and no dll of the list is called. "
+               "Remove that dll from the list, or put it first in the list and add the line 'accept_takeover = true' to "
+               "edloader.txt: then edloader still passes the calls on, at your own risk", what.c_str());
+      }
+    else
+      log_line("TAKEOVER: %s", what.c_str());
+    }
+
   watched_import_t watched_imports[2]{{"D3D11CreateDevice", nullptr, nullptr, {}, nullptr},
                                       {"D3D11CreateDeviceAndSwapChain", nullptr, nullptr, {}, nullptr}};
+
+  auto narrow(std::wstring const & w) -> std::string
+    {
+    std::string out;
+    for(wchar_t const c: w)
+      out.push_back(c < 128 ? static_cast<char>(c) : '?');
+    return out;
+    }
 
   ///\brief the module an address lies in, by name; "?" when none
   auto module_of(void const * address) -> std::wstring
@@ -235,6 +271,8 @@ namespace
         if(now != w.last)
           {
           log_line("%s: the game's import of %s now leads to %S (%p)", when, w.name, module_of(now).c_str(), now);
+          if(module_of(now) != module_of(w.last))
+            take_over(std::string{when} + ": " + narrow(module_of(now)) + " took the game's import of " + w.name);
           w.last = now;
           }
         }
@@ -247,22 +285,136 @@ namespace
           void const * const to{jump_target(now)};
           log_line("%s: the system d3d11's %s starts differently now%s%S", when, w.name, to ? ", a jump to " : " (no jump read)",
                    to ? module_of(to).c_str() : L"");
+          take_over(std::string{when} + ": the system d3d11's " + w.name + " was hooked inline" +
+                    (to ? " (a jump to " + narrow(module_of(to)) + ")" : std::string{}));
           std::memcpy(w.prologue, now, sizeof now);
           }
         }
       }
     }
 
-  ///\brief the starting point of the checks: where the game's imports lead and the system copy's first bytes
+  ///\brief the first bytes of an exported function as the dll's file on disk has them; false when they cannot be
+  /// compared (not found, forwarded, or a relocation inside them)
+  auto bytes_on_disk(std::wstring const & path, char const * function, std::uint8_t (&out)[16], std::wstring & why) -> bool
+    {
+    std::FILE * f{_wfopen(path.c_str(), L"rb")};
+    if(not f)
+      {
+      why = L"the file cannot be read";
+      return false;
+      }
+    std::vector<std::uint8_t> file;
+    std::uint8_t buf[65536];
+    for(std::size_t n; (n = std::fread(buf, 1, sizeof buf, f)) > 0;)
+      file.insert(file.end(), buf, buf + n);
+    std::fclose(f);
+    auto const at = [&](std::size_t off, std::size_t len) { return off + len <= file.size(); };
+    if(not at(0, sizeof(IMAGE_DOS_HEADER)))
+      return why = L"not a dll", false;
+    auto const dos{reinterpret_cast<IMAGE_DOS_HEADER const *>(file.data())};
+    if(not at(static_cast<std::size_t>(dos->e_lfanew), sizeof(IMAGE_NT_HEADERS64)))
+      return why = L"not a dll", false;
+    auto const nt{reinterpret_cast<IMAGE_NT_HEADERS64 const *>(file.data() + dos->e_lfanew)};
+    auto const sections{IMAGE_FIRST_SECTION(nt)};
+    auto const to_offset = [&](DWORD rva) -> std::size_t
+      {
+      for(WORD i{}; i != nt->FileHeader.NumberOfSections; ++i)
+        if(rva >= sections[i].VirtualAddress and rva < sections[i].VirtualAddress + sections[i].SizeOfRawData)
+          return rva - sections[i].VirtualAddress + sections[i].PointerToRawData;
+      return SIZE_MAX;
+      };
+    IMAGE_DATA_DIRECTORY const & ed{nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT]};
+    std::size_t const eo{to_offset(ed.VirtualAddress)};
+    if(eo == SIZE_MAX or not at(eo, sizeof(IMAGE_EXPORT_DIRECTORY)))
+      return why = L"no export table", false;
+    auto const exp{reinterpret_cast<IMAGE_EXPORT_DIRECTORY const *>(file.data() + eo)};
+    std::size_t const names{to_offset(exp->AddressOfNames)}, ords{to_offset(exp->AddressOfNameOrdinals)}, funcs{to_offset(exp->AddressOfFunctions)};
+    DWORD rva{};
+    for(DWORD i{}; i != exp->NumberOfNames and names != SIZE_MAX and ords != SIZE_MAX and funcs != SIZE_MAX; ++i)
+      {
+      DWORD name_rva;
+      std::memcpy(&name_rva, file.data() + names + i * 4, 4);
+      std::size_t const no{to_offset(name_rva)};
+      if(no == SIZE_MAX or std::strcmp(reinterpret_cast<char const *>(file.data() + no), function) != 0)
+        continue;
+      WORD ord;
+      std::memcpy(&ord, file.data() + ords + i * 2, 2);
+      std::memcpy(&rva, file.data() + funcs + ord * 4, 4);
+      break;
+      }
+    if(rva == 0)
+      return why = L"not exported by name", false;
+    if(rva >= ed.VirtualAddress and rva < ed.VirtualAddress + ed.Size)
+      return why = L"forwarded", false;
+    // a relocation inside the first bytes would differ in memory without anyone's hook
+    IMAGE_DATA_DIRECTORY const & rd{nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC]};
+    for(std::size_t ro{to_offset(rd.VirtualAddress)}, end{ro + rd.Size}; ro != SIZE_MAX and ro + 8 <= end and at(ro, 8);)
+      {
+      auto const block{reinterpret_cast<IMAGE_BASE_RELOCATION const *>(file.data() + ro)};
+      if(block->SizeOfBlock < 8)
+        break;
+      for(std::size_t e{8}; e + 2 <= block->SizeOfBlock and at(ro + e, 2); e += 2)
+        {
+        WORD entry;
+        std::memcpy(&entry, file.data() + ro + e, 2);
+        DWORD const where{block->VirtualAddress + (entry & 0xFFFu)};
+        if((entry >> 12) != IMAGE_REL_BASED_ABSOLUTE and where + 8 > rva and where < rva + 16)
+          return why = L"a relocation in its first bytes", false;
+        }
+      ro += block->SizeOfBlock;
+      }
+    std::size_t const fo{to_offset(rva)};
+    if(fo == SIZE_MAX or not at(fo, sizeof out))
+      return why = L"outside the file", false;
+    std::memcpy(out, file.data() + fo, sizeof out);
+    return true;
+    }
+
+  ///\brief the modules in the process when edloader starts: whoever was there may have changed d3d11 already
+  auto log_modules() noexcept -> void
+    {
+    HANDLE const snap{CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, GetCurrentProcessId())};
+    if(snap == INVALID_HANDLE_VALUE)
+      return;
+    MODULEENTRY32W m{};
+    m.dwSize = sizeof m;
+    std::wstring all;
+    for(BOOL ok{Module32FirstW(snap, &m)}; ok; ok = Module32NextW(snap, &m))
+      {
+      if(not all.empty())
+        all += L", ";
+      all += m.szModule;
+      }
+    CloseHandle(snap);
+    log_line("modules before the list: %S", all.c_str());
+    }
+
+  ///\brief the starting point of the checks: where the game's imports lead and the system copy's first bytes,
+  /// against the system copy's file on disk (a hook made before edloader started shows there)
   auto start_takers() noexcept -> void
     {
+    log_modules();
     find_game_imports();
     watched_imports[0].system = reinterpret_cast<void *>(system_element.create);
     watched_imports[1].system = reinterpret_cast<void *>(system_element.create_swap);
     for(watched_import_t & w: watched_imports)
       {
       if(w.system)
+        {
         std::memcpy(w.prologue, w.system, sizeof w.prologue);
+        std::uint8_t disk[16];
+        std::wstring why;
+        if(not bytes_on_disk(system_element.name, w.name, disk, why))
+          log_line("the system d3d11's %s cannot be compared with its file (%S)", w.name, why.c_str());
+        else if(std::memcmp(disk, w.prologue, sizeof disk) != 0)
+          {
+          void const * const to{jump_target(w.prologue)};
+          take_over(std::string{"before edloader started: the system d3d11's "} + w.name + " differs from its file" +
+                    (to ? " (a jump to " + narrow(module_of(to)) + ")" : std::string{}));
+          }
+        else
+          log_line("the system d3d11's %s is as its file has it", w.name);
+        }
       if(w.slot)
         {
         w.last = *w.slot;
@@ -287,6 +439,25 @@ namespace
     wchar_t self[MAX_PATH]{};
     GetModuleFileNameW(self_module, self, MAX_PATH);
     char line[1024];
+    // the settings first, wherever they stand in the list: they decide what a takeover while loading does
+    while(std::fgets(line, sizeof line, f))
+      {
+      std::string_view text{trim(line)};
+      if(auto const hash{text.find_first_of("#;")}; hash != std::string_view::npos)
+        text = trim(text.substr(0, hash));
+      auto const eq{text.find('=')};
+      if(eq == std::string_view::npos)
+        continue;
+      std::string_view const key{trim(text.substr(0, eq))}, value{trim(text.substr(eq + 1))};
+      if(key == "accept_takeover")
+        {
+        accept_takeover = value == "true" or value == "1" or value == "yes";
+        log_line("accept_takeover = %s", accept_takeover ? "true: a takeover is logged and the list still passed on" : "false");
+        }
+      else
+        log_line("unknown setting '%.*s' ignored", static_cast<int>(key.size()), key.data());
+      }
+    std::rewind(f);
     while(std::fgets(line, sizeof line, f))
       {
       std::string_view text{trim(line)};
@@ -294,6 +465,8 @@ namespace
         text = trim(text.substr(0, hash));
       if(text.empty())
         continue;
+      if(text.find('=') != std::string_view::npos)
+        continue;  // a setting, read above
       bool const plain{text.front() == '+'};
       if(plain)
         text = trim(text.substr(1));
@@ -388,6 +561,11 @@ namespace
     SetEnvironmentVariableW(L"EDLOADER_LOG_DIR", (root_dir + L"\\logs").c_str());
     start_takers();
     load_list();
+    if(takeover and accept_takeover and stopped)
+      {
+      stopped = false;  // found before the list's accept_takeover was read
+      log_line("TAKEOVER accepted (accept_takeover = true): the list is passed on, at your own risk");
+      }
     return TRUE;
     }
 
@@ -406,6 +584,8 @@ namespace
   ///\brief the element the call goes to, from the module that made it
   auto route(void * return_address, char const * what) noexcept -> element_t const &
     {
+    if(stopped)
+      return system_element;
     HMODULE caller{};
     GetModuleHandleExW(
       GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
