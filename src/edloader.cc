@@ -732,8 +732,10 @@ extern "C" HRESULT WINAPI edvr_impl_D3D11CreateDevice(
   HRESULT const hr{target.create(adapter, driver_type, software, flags, levels, level_count, sdk, device, level, context)};
   if(depth == 1)
     {
-    log_line("D3D11CreateDevice: hr 0x%08lX through %zu element(s), device %s", static_cast<unsigned long>(hr), chain.size(),
-             device == nullptr ? "not asked" : SUCCEEDED(hr) and *device ? "made" : "asked, none made");
+    log_line("D3D11CreateDevice: hr 0x%08lX through %zu element(s), device %s; called from %S, passed to %S",
+             static_cast<unsigned long>(hr), chain.size(),
+             device == nullptr ? "not asked" : SUCCEEDED(hr) and *device ? "made" : "asked, none made",
+             module_of(_ReturnAddress()).c_str(), target.name.c_str());
     report_shortcuts();
     }
   return hr;
