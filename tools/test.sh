@@ -23,6 +23,8 @@ for n in a b; do
 done
 cl /nologo /O2 /MT /LD /std:c++latest /W4 /DWIN32_LEAN_AND_MEAN /D_CRT_SECURE_NO_WARNINGS \
    /Fobuild/test/fake_intruder.obj /Febuild/test/fake_intruder.dll test/fake_intruder.cc >/dev/null
+cl /nologo /O2 /MT /LD /std:c++latest /W4 /DWIN32_LEAN_AND_MEAN /D_CRT_SECURE_NO_WARNINGS \
+   /Fobuild/test/fake_hooker.obj /Febuild/test/fake_hooker.dll test/fake_hooker.cc >/dev/null
 RUN=$(mktemp -d "$SCR/edloader-test.XXXXXX")
 # the one place, here moved by EDLOADER_DIR (the lab's override): edloader.txt, plugins\, config\, logs\
 GAME=$RUN/game ROOT=$RUN/root ELSEWHERE=$RUN/elsewhere
@@ -81,4 +83,16 @@ for accept in no yes; do
     [[ $(tr '\n' ' ' < order.txt) == "fake_a "* ]] || fail "the list not called with accept_takeover"
   fi
 done
+# a dll that hooks edloader's own D3D11CreateDevice in its DllMain, as 3Dmigoto (EDHM) does: put back, the list runs
+cp "$HERE/build/test/fake_hooker.dll" "$ROOT/plugins/"
+: > order.txt
+: > "$ROOT/logs/edloader.log"
+printf '+fake_hooker.dll\nfake_a.dll\nfake_b.dll\n' > "$ROOT/edloader.txt"
+set +e
+wine test_app.exe > test_app_hooker.out
+set -e
+echo "--- edloader.log, hooker"; cat "$ROOT/logs/edloader.log"
+grep -q "fake_hooker.dll hooked edloader's own D3D11CreateDevice inline; put back" "$ROOT/logs/edloader.log" \
+  || fail "a hook on edloader's own export put back"
+[[ $(tr '\n' ' ' < order.txt) == "fake_a fake_b "* ]] || fail "order with a hooker '$(tr '\n' ' ' < order.txt)'"
 echo "chain test PASSED"

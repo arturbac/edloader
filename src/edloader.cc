@@ -286,8 +286,8 @@ namespace
         void const * const to{jump_target(now)};
         log_line("%s: kernelbase's %s starts differently now%s%S", when, w.name, to ? ", a jump to " : " (no jump read)",
                  to ? module_of(to).c_str() : L"");
-        take_over(std::string{when} + ": kernelbase's " + w.name + " was hooked inline" +
-                  (to ? " (a jump to " + narrow(module_of(to)) + ")" : std::string{}));
+        // 3Dmigoto hooks LoadLibraryExW for its own load_library_redirect; edloader's chain does not go through the
+        // loader after the list is loaded, so this is said, not stopped for
         std::memcpy(w.prologue, now, sizeof now);
         }
       }
@@ -385,6 +385,69 @@ namespace
       return const_cast<std::uint8_t *>(base + rva);
       }
     return nullptr;
+    }
+
+  // ---- edloader's own exports: what 3Dmigoto (EDHM) hooks ----
+  // 3Dmigoto loaded under another name than d3d11.dll hooks D3D11CreateDevice(AndSwapChain) inline in the module named
+  // d3d11.dll from its DllMain (DirectX11/DLLMainHook.cpp, HookD3D11) - here that is edloader. Every call into edloader
+  // would then go to it first, and the calls it passes on through its trampoline would come from it, so the list
+  // would be skipped past it. edloader keeps its exports' first bytes and puts them back after each dll of the list;
+  // the dll stays a chain element like any other, and its trampoline still reaches edloader's code.
+  struct own_export_t
+    {
+    std::string name;
+    std::uint8_t * at;
+    std::uint8_t bytes[32];
+    };
+
+  std::vector<own_export_t> own_exports;
+
+  ///\brief every export of edloader's own table (the wrapped D3D11CreateDevice(AndSwapChain) among them, which the
+  /// generated thunk list lacks), its first 32 bytes, before any dll of the list is loaded
+  auto keep_own_exports() noexcept -> void
+    {
+    auto const base{reinterpret_cast<std::uint8_t *>(self_module)};
+    auto const nt{reinterpret_cast<IMAGE_NT_HEADERS const *>(base + reinterpret_cast<IMAGE_DOS_HEADER const *>(base)->e_lfanew)};
+    IMAGE_DATA_DIRECTORY const & ed{nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT]};
+    if(ed.VirtualAddress == 0)
+      return;
+    auto const exp{reinterpret_cast<IMAGE_EXPORT_DIRECTORY const *>(base + ed.VirtualAddress)};
+    auto const names{reinterpret_cast<DWORD const *>(base + exp->AddressOfNames)};
+    auto const ords{reinterpret_cast<WORD const *>(base + exp->AddressOfNameOrdinals)};
+    auto const funcs{reinterpret_cast<DWORD const *>(base + exp->AddressOfFunctions)};
+    for(DWORD i{}; i != exp->NumberOfNames; ++i)
+      {
+      DWORD const rva{funcs[ords[i]]};
+      if(rva >= ed.VirtualAddress and rva < ed.VirtualAddress + ed.Size)
+        continue;  // a forwarder: no code of ours
+      own_export_t e{reinterpret_cast<char const *>(base + names[i]), base + rva, {}};
+      std::memcpy(e.bytes, e.at, sizeof e.bytes);
+      own_exports.push_back(e);
+      }
+    log_line("own exports kept: %zu, their first %zu bytes", own_exports.size(), sizeof(own_export_t::bytes));
+    }
+
+  ///\brief puts back the first bytes of edloader's exports a dll overwrote (3Dmigoto's HookD3D11 from its DllMain), naming
+  /// that dll: the one just loaded (a hook library jumps through its own stub, so the jump's module would say nothing)
+  auto guard_own_exports(char const * when, char const * who) noexcept -> void
+    {
+    for(own_export_t const & e: own_exports)
+      {
+      if(std::memcmp(e.at, e.bytes, sizeof e.bytes) == 0)
+        continue;
+      DWORD old{};
+      if(VirtualProtect(e.at, sizeof e.bytes, PAGE_EXECUTE_READWRITE, &old))
+        {
+        std::memcpy(e.at, e.bytes, sizeof e.bytes);
+        VirtualProtect(e.at, sizeof e.bytes, old, &old);
+        FlushInstructionCache(GetCurrentProcess(), e.at, sizeof e.bytes);
+        log_line("%s: %s hooked edloader's own %s inline; put back (it stays in the list as any other element)", when, who,
+                 e.name.c_str());
+        }
+      else
+        log_line("%s: %s hooked edloader's own %s inline; could not be put back (error %lu)", when, who, e.name.c_str(),
+                 GetLastError());
+      }
     }
 
   ///\brief every module's imports of the loader's functions: logged when they lead past kernel32/kernelbase, put back
@@ -577,8 +640,8 @@ namespace
         else if(std::memcmp(disk, w.prologue, sizeof disk) != 0)
           {
           void const * const to{jump_target(w.prologue)};
-          take_over(std::string{"before edloader started: kernelbase's "} + w.name + " differs from its file" +
-                    (to ? " (a jump to " + narrow(module_of(to)) + ")" : std::string{}));
+          log_line("before edloader started: kernelbase's %s differs from its file%s%S (said, not stopped for)", w.name,
+                   to ? " (a jump to " : "", to ? (module_of(to) + L")").c_str() : L"");
           }
         else
           log_line("kernelbase's %s is as its file has it", w.name);
@@ -676,6 +739,7 @@ namespace
         }
       {
       std::string const label{"after loading " + std::string{text}};
+      guard_own_exports(label.c_str(), std::string{text}.c_str());
       check_takers(label.c_str());
       check_loader(label.c_str());
       }
@@ -751,6 +815,7 @@ namespace
     SetEnvironmentVariableW(L"EDLOADER_CONFIG_DIR", (root_dir + L"\\config").c_str());
     SetEnvironmentVariableW(L"EDLOADER_LOG_DIR", (root_dir + L"\\logs").c_str());
     start_takers();
+    keep_own_exports();
     load_list();
     sweep_loader_imports("after the list");
     if(takeover and accept_takeover and stopped)
@@ -838,6 +903,7 @@ extern "C" HRESULT WINAPI edvr_impl_D3D11CreateDevice(
   if(depth == 1)
     {
     entered = 0;
+    guard_own_exports("at D3D11CreateDevice", "a dll");
     check_takers("at D3D11CreateDevice");
     check_loader("at D3D11CreateDevice");
     sweep_loader_imports("at D3D11CreateDevice");
@@ -877,6 +943,7 @@ extern "C" HRESULT WINAPI edvr_impl_D3D11CreateDeviceAndSwapChain(
   if(depth == 1)
     {
     entered = 0;
+    guard_own_exports("at D3D11CreateDeviceAndSwapChain", "a dll");
     check_takers("at D3D11CreateDeviceAndSwapChain");
     check_loader("at D3D11CreateDeviceAndSwapChain");
     sweep_loader_imports("at D3D11CreateDeviceAndSwapChain");
