@@ -3,10 +3,10 @@
 // loaders take a list of plugins.
 //
 // Every proxy in the list was written to BE d3d11.dll and to reach "the original" somehow. Those that ask for
-// "d3d11.dll" by name (3Dmigoto/EDHM, EDVR with advanced.real_dll = d3d11.dll, edworld with next = d3d11.dll)
-// get edloader back; edloader looks at who called (the return address's module) and passes the call to the
-// element after it in the list, the last one to the system copy. The game itself (not in the list) goes to the
-// first element.
+// "d3d11.dll" by name (3Dmigoto/EDHM, edworld with next = d3d11.dll) or by edloader's full path (EDVR's
+// advanced.real_dll: EDVR takes a bare name from its own folder) get edloader back; edloader looks at who called
+// (the return address's module) and passes the call to the element after it in the list, the last one to the
+// system copy. The game itself (not in the list) goes to the first element.
 //
 // Discipline from EDVR (MIT): only the system copy is loaded in DllMain (already mapped, no foreign DllMain
 // under the loader lock); the list is loaded on the first export call.

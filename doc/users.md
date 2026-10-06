@@ -23,8 +23,8 @@ page, with an example list, `edloader.txt.example`.
    ```
    # '#' or ';' starts a comment
    edworld.dll       # first: sees the game's own calls
-   d3d11_edvr.dll
    d3d11_edhm.dll
+   d3d11_edvr.dll    # after EDHM, see "EDHM and EDVR" below
    ```
 
    A line with `=` is a setting, not a mod; the only one is `accept_takeover` (below).
@@ -41,11 +41,22 @@ Most mods pass the game's calls on to "the original d3d11.dll". For them to pass
 list, that setting must say `d3d11.dll` (the name, not a path to the system's copy):
 
 - EDHM (3Dmigoto) does so by itself.
-- EDVR: `advanced.real_dll = d3d11.dll` in its settings.
+- EDVR: `advanced.real_dll` in its settings (`edvr-flat.ini`, beside its dll in `edloader\plugins`) set to the
+  full path of edloader's `d3d11.dll` in the game's folder, for example
+  `C:\Program Files (x86)\Steam\steamapps\common\Elite Dangerous\Products\elite-dangerous-odyssey-64\d3d11.dll`
+  (under Proton the same folder as `Z:\` followed by its Linux path). EDVR takes a name alone from its own folder,
+  where there is no `d3d11.dll`, and then goes to the system's copy.
 - edworld: `next = d3d11.dll` in `edworld.ini`.
 
 A mod pointed at the system's copy ends the list there: the mods after it are not used, and `edloader.log` says
 `did not call on` with the mod's name.
+
+## EDHM and EDVR
+
+Put EDHM before EDVR in the list. EDHM (3Dmigoto) hands the mods after it its own wrapped device; EDVR's flat
+anti-aliasing then never finds the game's frame and stands down for the whole session (its log:
+`flat stand-down: entered ... no-known-output-copy`). With EDHM first, EDVR gets the real device, as it does when
+EDVR is the game's `d3d11.dll` and EDHM is chained behind it.
 
 ## A mod that takes the game's calls itself
 
