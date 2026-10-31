@@ -56,19 +56,27 @@ by an inline hook on the system copy's function. edloader cannot prevent either,
 
 ## Build
 
-`tools/build.sh` builds `build/d3d11.dll` with msvc-wine (cl, ml64, link) on Linux. Environment:
+On Linux with CMake, Ninja, LLVM (clang-cl, lld-link, llvm-lib, llvm-ml64, llvm-rc, llvm-mt) and Python 3; no
+MSVC compiler is run. The headers and libraries come from MSVC and the Windows SDK in one directory in clang's
+`/winsysroot` layout (`VC/Tools/MSVC/<version>`, `Windows Kits/10`), e.g. the one msvc-wine installs; its path is
+`MSVC_ROOT` (a cache variable, or the environment variable of the same name).
 
-- `MSVC_WINE_ENV`: msvc-wine's `env.sh`;
-- `RELEASE_DLL`: a released EDVR `d3d11.dll`, whose export list EDVR's generator (`tools/gen_exports.py`, MIT,
-  unchanged) turns into the export thunks; no EDVR binary becomes part of edloader.
+```
+MSVC_ROOT=<dir> cmake --preset edloader-release
+cmake --build build/edloader-release
+```
 
-The version in the log is `git describe` of the tree it was built from.
+The dll is `<build dir>/d3d11.dll`. The export thunks come from the Windows d3d11 export names in
+`tools/d3d11_exports.txt`, turned into thunks by EDVR's generator (`tools/gen_exports.py`, MIT, unchanged).
+Presets: `edloader-debug` and `edloader-release` build in `build/<preset>`; `kdev-edloader-debug` and
+`kdev-edloader-release` are the same without a build directory, for an IDE that chooses its own. The version in
+the log is `git describe` of the tree, taken at each build. `EDLOADER_TESTS` (on) builds the test's dlls.
 
 ## Test
 
-`tools/test.sh <scratch dir>` runs under wine without the game: a stand-in for the game creates a device through
+`tools/test.sh <build dir> <scratch dir>` runs under wine without the game: a stand-in for the game creates a device through
 edloader -> two fake proxies -> edworld -> the system copy, and checks the order of the calls and that every file
-lands in its one place. Environment: `MSVC_WINE_ENV`, `EDWORLD_DIR` (an edworld checkout with its build),
+lands in its one place. Environment: `EDWORLD_DIR` (an edworld checkout), `EDWORLD_BUILD` (its build directory, with the test's programs),
 `EDWORLD_WINEPREFIX` (a wine prefix kept between runs).
 
 ## Files
@@ -76,7 +84,9 @@ lands in its one place. Environment: `MSVC_WINE_ENV`, `EDWORLD_DIR` (an edworld 
 | Path | What |
 |---|---|
 | `src/edloader.cc` | the loader |
-| `tools/build.sh`, `tools/gen_exports_from_release.py` | the build; the export list read from a released EDVR dll |
+| `CMakeLists.txt`, `test/CMakeLists.txt`, `CMakePresets.json` | the build |
+| `cmake/clang-cl-msvc-sdk.cmake`, `cmake/version.cmake` | the toolchain (clang-cl with MSVC's and the Windows SDK's headers and libraries), the version from `git describe` |
+| `tools/d3d11_exports.txt`, `tools/gen_exports_from_list.py` | the Windows d3d11 export names, and the run of EDVR's generator on them |
 | `tools/gen_exports.py`, `tools/EDVR-LICENSE.txt` | EDVR's export thunk generator (MIT) |
 | `tools/test.sh`, `test/fake_proxy.cc` | the test under wine |
 | `NOTICE` | third-party work, file by file, with the licences |

@@ -1,37 +1,32 @@
 #!/usr/bin/env bash
 # Chain test without the game: game (edworld's test_app) -> edloader -> fake_a -> fake_b -> edworld -> system.
-# edworld = its build for anyone (build/edworld/edworld.dll), not the one that works with EHT.
-# Needs tools/build.sh here and, in an edworld checkout, tools/build.sh and tools/test.sh once (test_app.exe).
-# Environment: MSVC_WINE_ENV (msvc-wine's env.sh), EDWORLD_DIR (that edworld checkout), EDWORLD_WINEPREFIX (a wine
-# prefix kept warm between runs).
-# Usage: tools/test.sh <scratch dir>
+# edworld = its build for anyone (edworld/edworld.dll), not the one that works with EHT.
+# Needs a CMake build here (EDLOADER_TESTS on) and one of edworld (EDWORLD_TESTS on, its tools/test.sh run once).
+# Environment: EDWORLD_DIR (an edworld checkout: its test data), EDWORLD_BUILD (that checkout's build directory),
+# EDWORLD_WINEPREFIX (a wine prefix kept warm between runs).
+# Usage: tools/test.sh <build dir> <scratch dir>
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")/.." && pwd)
-SCR=${1:?scratch dir}
+BUILD=$(cd "${1:?build dir}" && pwd)
+SCR=${2:?scratch dir}
 need() { [[ -n ${!1:-} ]] || { echo "$0: set $1 ($2)" >&2; exit 1; }; }
-need MSVC_WINE_ENV "msvc-wine's env.sh"
-need EDWORLD_DIR "an edworld checkout, built and tested once"
+need EDWORLD_DIR "an edworld checkout"
+need EDWORLD_BUILD "its build directory, built and tested once"
 need EDWORLD_WINEPREFIX "a wine prefix kept between runs"
 EDW=$EDWORLD_DIR
-source "$MSVC_WINE_ENV"
-cd "$HERE"
-mkdir -p build/test
-for n in a b; do
-  cl /nologo /O2 /MT /LD /std:c++latest /W4 /DWIN32_LEAN_AND_MEAN /D_CRT_SECURE_NO_WARNINGS "/DFAKE_NAME=\"fake_$n\"" \
-     /Fobuild/test/fake_$n.obj /Febuild/test/fake_$n.dll test/fake_proxy.cc \
-     /link /EXPORT:D3D11CreateDevice=fake_D3D11CreateDevice >/dev/null
+EDWB=$EDWORLD_BUILD
+for f in "$BUILD/d3d11.dll" "$BUILD/test/fake_a.dll" "$BUILD/test/fake_b.dll" "$BUILD/test/fake_intruder.dll" \
+         "$BUILD/test/fake_hooker.dll" "$EDWB/test/edworld/test_app.exe" "$EDWB/edworld/edworld.dll"; do
+  [[ -f $f ]] || { echo "$0: no $f (build first)" >&2; exit 1; }
 done
-cl /nologo /O2 /MT /LD /std:c++latest /W4 /DWIN32_LEAN_AND_MEAN /D_CRT_SECURE_NO_WARNINGS \
-   /Fobuild/test/fake_intruder.obj /Febuild/test/fake_intruder.dll test/fake_intruder.cc >/dev/null
-cl /nologo /O2 /MT /LD /std:c++latest /W4 /DWIN32_LEAN_AND_MEAN /D_CRT_SECURE_NO_WARNINGS \
-   /Fobuild/test/fake_hooker.obj /Febuild/test/fake_hooker.dll test/fake_hooker.cc >/dev/null
+cd "$HERE"
 RUN=$(mktemp -d "$SCR/edloader-test.XXXXXX")
 # the one place, here moved by EDLOADER_DIR (the lab's override): edloader.txt, plugins\, config\, logs\
 GAME=$RUN/game ROOT=$RUN/root ELSEWHERE=$RUN/elsewhere
 mkdir -p "$GAME" "$ROOT/plugins" "$ELSEWHERE"
-cp build/d3d11.dll "$EDW/build/test/edworld/test_app.exe" "$EDW/test/data/edsm_factions_shinrarta.json" "$GAME/"
-cp build/test/fake_a.dll build/test/fake_b.dll "$ROOT/plugins/"
-cp "$EDW/build/edworld/edworld.dll" "$ELSEWHERE/"
+cp "$BUILD/d3d11.dll" "$EDWB/test/edworld/test_app.exe" "$EDW/test/data/edsm_factions_shinrarta.json" "$GAME/"
+cp "$BUILD/test/fake_a.dll" "$BUILD/test/fake_b.dll" "$ROOT/plugins/"
+cp "$EDWB/edworld/edworld.dll" "$ELSEWHERE/"
 win() { echo "Z:${1//\//\\}"; }
 printf '# test chain\nfake_a.dll\nfake_b.dll   ; by name back to edloader\n%s   ; an absolute path\n' \
   "$(win "$ELSEWHERE/edworld.dll")" > "$ROOT/edloader.txt"
@@ -62,7 +57,7 @@ PROFILE=$(wine cmd /c echo %USERPROFILE% 2>/dev/null | tr -d '\r')
 DEFAULT_LOG=$(winepath -u "$PROFILE\\edloader\\logs\\edloader.log" 2>/dev/null)
 grep -qF "EDLOADER_DIR=$EDLOADER_DIR:" "$DEFAULT_LOG" || fail "no EDLOADER_DIR line in $DEFAULT_LOG"
 # a dll that takes the game's import in its DllMain: edloader says so and stops, unless the list accepts it
-cp "$HERE/build/test/fake_intruder.dll" "$ROOT/plugins/"
+cp "$BUILD/test/fake_intruder.dll" "$ROOT/plugins/"
 for accept in no yes; do
   : > order.txt
   : > "$ROOT/logs/edloader.log"
@@ -84,7 +79,7 @@ for accept in no yes; do
   fi
 done
 # a dll that hooks edloader's own D3D11CreateDevice in its DllMain, as 3Dmigoto (EDHM) does: put back, the list runs
-cp "$HERE/build/test/fake_hooker.dll" "$ROOT/plugins/"
+cp "$BUILD/test/fake_hooker.dll" "$ROOT/plugins/"
 : > order.txt
 : > "$ROOT/logs/edloader.log"
 printf '+fake_hooker.dll\nfake_a.dll\nfake_b.dll\n' > "$ROOT/edloader.txt"

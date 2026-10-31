@@ -5,9 +5,9 @@ edloader contains or builds on the following third-party work.
 
 EDVR unofficial patch — https://github.com/characterecho-sean/edvr-unofficial-patch
   MIT License, Copyright (c) 2026 characterecho-sean. Full text: tools/EDVR-LICENSE.txt
-  - tools/gen_exports.py: EDVR's export thunk generator, copied unchanged; build/gen/edvr_* are its output,
-    and src/edloader.cc uses the edvr_* names it generates. tools/gen_exports_from_release.py (edloader's own)
-    runs it on the export list of a released EDVR d3d11.dll at build time; no EDVR binary is part of edloader.
+  - tools/gen_exports.py: EDVR's export thunk generator, copied unchanged; its output (the build's gen/edvr_*)
+    is used by src/edloader.cc. tools/gen_exports_from_list.py (edloader's own) runs it on the Windows d3d11
+    export names in tools/d3d11_exports.txt at build time; no EDVR binary is part of edloader.
   - src/edloader.cc: the proxy loading discipline of EDVR's src/d3d11/d3d11_proxy.cpp (system copy loaded in
     DllMain, the rest on the first export call).
 
