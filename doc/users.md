@@ -16,24 +16,27 @@ page, with an example list, `edloader.txt.example`.
 
    Start the game once with edloader installed and it makes this folder with `plugins`, `config` and `logs` in it.
 3. Move each mod's `d3d11.dll` out of the game's folder into `edloader\plugins`, under a name of its own, for
-   example `d3d11_edhm.dll`, `d3d11_edvr.dll`, `edworld.dll`.
+   example `d3d11_edvr.dll`, `edworld.dll`. **EDHM is the exception: it stays in the game's folder.** Only rename its
+   `d3d11.dll` to `d3d11_edhm.dll`, and leave `d3dx.ini`, `d3dcompiler_47.dll`, `ShaderFixes` and `EDHM-ini` beside it.
+   Moved to `edloader\plugins` without them, it does not start (`cannot load (error 1114)` in `edloader.log`).
 4. Copy edloader's `d3d11.dll` into the game's folder.
 5. Write `edloader\edloader.txt`, one mod per line, in the order the game should reach them:
 
    ```
    # '#' or ';' starts a comment
    edworld.dll       # first: sees the game's own calls
-   d3d11_edhm.dll
+   C:\Program Files (x86)\Steam\steamapps\common\Elite Dangerous\Products\elite-dangerous-odyssey-64\d3d11_edhm.dll
    d3d11_edvr.dll    # after EDHM, see "EDHM and EDVR" below
    ```
 
    A line with `=` is a setting, not a mod; the only one is `accept_takeover` (below).
 
-   A name alone is taken from `edloader\plugins`; a full path (`D:\mods\x.dll`) is taken as it is. A line starting
+   A name alone is taken from `edloader\plugins`; a full path (`D:\mods\x.dll`) is taken as it is, which is how EDHM
+   is reached in the game's folder (under Proton the same folder as `Z:\` followed by its Linux path). A line starting
    with `+` loads a dll that is not a d3d11 mod (it is loaded, nothing is passed to it).
 6. Each mod still reads its own settings. edworld reads `edworld.ini` from `edloader\config` and writes its log to
-   `edloader\logs`. For other mods, see where they look: most read their files beside their dll, so keep those in
-   `edloader\plugins`.
+   `edloader\logs`. For other mods, see where they look: most read their files beside their dll, so keep those beside
+   it: EDHM's in the game's folder, the others' in `edloader\plugins`.
 
 ## Each mod's "original d3d11"
 
@@ -46,7 +49,7 @@ list, that setting must say `d3d11.dll` (the name, not a path to the system's co
   `C:\Program Files (x86)\Steam\steamapps\common\Elite Dangerous\Products\elite-dangerous-odyssey-64\d3d11.dll`
   (under Proton the same folder as `Z:\` followed by its Linux path). EDVR takes a name alone from its own folder,
   where there is no `d3d11.dll`, and then goes to the system's copy.
-- edworld: `next = d3d11.dll` in `edworld.ini`.
+- edworld does so by itself under edloader, from 1.2.0-beta.3; before that it needs `next = d3d11.dll` in `edworld.ini`.
 
 A mod pointed at the system's copy ends the list there: the mods after it are not used, and `edloader.log` says
 `did not call on` with the mod's name.
@@ -82,10 +85,11 @@ runs without any mod.
 ## After a verification of the game's files
 
 Steam's and the launcher's verification removes from the game's folder everything that is not the game's, so
-edloader's `d3d11.dll` with it. Your mods, their settings and your list stay in `edloader`, outside the game's
-folder: copy edloader's `d3d11.dll` into the game's folder again and everything is back.
+edloader's `d3d11.dll` with it, and EDHM. The other mods, their settings and your list stay in `edloader`, outside the
+game's folder: copy edloader's `d3d11.dll` into the game's folder again, install EDHM again and rename its `d3d11.dll`
+to `d3d11_edhm.dll`.
 
 ## Remove
 
 Delete edloader's `d3d11.dll` from the game's folder. To go back to one mod, copy that mod's dll from
-`edloader\plugins` into the game's folder as `d3d11.dll`.
+`edloader\plugins` into the game's folder as `d3d11.dll`, or for EDHM rename `d3d11_edhm.dll` back to `d3d11.dll`.
