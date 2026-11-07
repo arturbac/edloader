@@ -44,7 +44,7 @@ Most mods pass the game's calls on to "the original d3d11.dll". For them to pass
 list, that setting must say `d3d11.dll` (the name, not a path to the system's copy):
 
 - EDHM (3Dmigoto) does so by itself.
-- EDVR: `advanced.real_dll` in its settings (`edvr-flat.ini`, beside its dll in `edloader\plugins`) set to the
+- EDVR: `real_dll` in the `[advanced]` section of its settings (`edvr-flat.ini`, beside its dll in `edloader\plugins`) set to the
   full path of edloader's `d3d11.dll` in the game's folder, for example
   `C:\Program Files (x86)\Steam\steamapps\common\Elite Dangerous\Products\elite-dangerous-odyssey-64\d3d11.dll`
   (under Proton the same folder as `Z:\` followed by its Linux path). EDVR takes a name alone from its own folder,
