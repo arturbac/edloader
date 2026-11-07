@@ -16,27 +16,26 @@ page, with an example list, `edloader.txt.example`.
 
    Start the game once with edloader installed and it makes this folder with `plugins`, `config` and `logs` in it.
 3. Move each mod's `d3d11.dll` out of the game's folder into `edloader\plugins`, under a name of its own, for
-   example `d3d11_edvr.dll`, `edworld.dll`. **EDHM is the exception: it stays in the game's folder.** Only rename its
-   `d3d11.dll` to `d3d11_edhm.dll`, and leave `d3dx.ini`, `d3dcompiler_47.dll`, `ShaderFixes` and `EDHM-ini` beside it.
-   Moved to `edloader\plugins` without them, it does not start (`cannot load (error 1114)` in `edloader.log`).
+   example `d3d11_edvr.dll`, `edworld.dll`, `d3d11_edhm.dll`. Move EDHM's `d3dx.ini`, `d3dcompiler_47.dll`,
+   `ShaderFixes` and `EDHM-ini` with it: without them it does not start (`cannot load (error 1114)` in `edloader.log`).
 4. Copy edloader's `d3d11.dll` into the game's folder.
 5. Write `edloader\edloader.txt`, one mod per line, in the order the game should reach them:
 
    ```
    # '#' or ';' starts a comment
-   edworld.dll       # first: sees the game's own calls
-   C:\Program Files (x86)\Steam\steamapps\common\Elite Dangerous\Products\elite-dangerous-odyssey-64\d3d11_edhm.dll
-   d3d11_edvr.dll    # after EDHM, see "EDHM and EDVR" below
+   edworld.dll           # first: sees the game's own calls
+   +d3dcompiler_47.dll   # EDHM's, before it
+   d3d11_edhm.dll
+   d3d11_edvr.dll        # after EDHM, see "EDHM and EDVR" below
    ```
 
    A line with `=` is a setting, not a mod; the only one is `accept_takeover` (below).
 
-   A name alone is taken from `edloader\plugins`; a full path (`D:\mods\x.dll`) is taken as it is, which is how EDHM
-   is reached in the game's folder (under Proton the same folder as `Z:\` followed by its Linux path). A line starting
+   A name alone is taken from `edloader\plugins`; a full path (`D:\mods\x.dll`) is taken as it is. A line starting
    with `+` loads a dll that is not a d3d11 mod (it is loaded, nothing is passed to it).
 6. Each mod still reads its own settings. edworld reads `edworld.ini` from `edloader\config` and writes its log to
    `edloader\logs`. For other mods, see where they look: most read their files beside their dll, so keep those beside
-   it: EDHM's in the game's folder, the others' in `edloader\plugins`.
+   it in `edloader\plugins`.
 
 ## Each mod's "original d3d11"
 
@@ -65,6 +64,14 @@ With EDVR's anti-aliasing on, set `ui_quality = off` in the `[fix]` section of `
 otherwise makes the cockpit panels bigger, edworld no longer finds them and the navballs are gone. The clouds are not
 affected.
 
+## EDHM-UI
+
+EDHM-UI works in the game's folder. Its Install puts EDHM there as `d3d11.dll`, over edloader's, and its themes go to
+`EDHM-ini` and `ShaderFixes` there. After a new theme copy those two folders into `edloader\plugins` again. After an
+Install also move EDHM's `d3d11.dll` to `edloader\plugins\d3d11_edhm.dll` and copy edloader's `d3d11.dll` back. Under
+Linux the two folders in the game's folder are links into EDHM-UI's own folder: the same links in `edloader\plugins`
+make the copying of themes needless.
+
 ## A mod that takes the game's calls itself
 
 Some mods do not wait to be called: the moment they are loaded they rewire the game so that its d3d11 calls go
@@ -89,11 +96,10 @@ runs without any mod.
 ## After a verification of the game's files
 
 Steam's and the launcher's verification removes from the game's folder everything that is not the game's, so
-edloader's `d3d11.dll` with it, and EDHM. The other mods, their settings and your list stay in `edloader`, outside the
-game's folder: copy edloader's `d3d11.dll` into the game's folder again, install EDHM again and rename its `d3d11.dll`
-to `d3d11_edhm.dll`.
+edloader's `d3d11.dll` with it. The mods, their settings and your list stay in `edloader`, outside the game's folder:
+copy edloader's `d3d11.dll` into the game's folder again.
 
 ## Remove
 
 Delete edloader's `d3d11.dll` from the game's folder. To go back to one mod, copy that mod's dll from
-`edloader\plugins` into the game's folder as `d3d11.dll`, or for EDHM rename `d3d11_edhm.dll` back to `d3d11.dll`.
+`edloader\plugins` into the game's folder as `d3d11.dll`, and for EDHM its other files too.
