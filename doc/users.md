@@ -56,7 +56,7 @@ A mod pointed at the system's copy ends the list there: the mods after it are no
 
 ## EDHM and EDVR
 
-Put EDHM before EDVR in the list. EDHM (3Dmigoto) hands the mods after it its own wrapped device; EDVR's flat
+Put EDHM before EDVR in the list. With EDVR before EDHM, EDHM (3Dmigoto) hands EDVR its own wrapped device; EDVR's flat
 anti-aliasing then never finds the game's frame and stands down for the whole session (its log:
 `flat stand-down: entered ... no-known-output-copy`). With EDHM first, EDVR gets the real device, as it does when
 EDVR is the game's `d3d11.dll` and EDHM is chained behind it.
