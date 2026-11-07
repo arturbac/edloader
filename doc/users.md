@@ -61,6 +61,10 @@ anti-aliasing then never finds the game's frame and stands down for the whole se
 `flat stand-down: entered ... no-known-output-copy`). With EDHM first, EDVR gets the real device, as it does when
 EDVR is the game's `d3d11.dll` and EDHM is chained behind it.
 
+With EDVR's anti-aliasing on, set `ui_quality = off` in the `[fix]` section of `edvr-flat.ini` (F8: UI quality). EDVR
+otherwise makes the cockpit panels bigger, edworld no longer finds them and the navballs are gone. The clouds are not
+affected.
+
 ## A mod that takes the game's calls itself
 
 Some mods do not wait to be called: the moment they are loaded they rewire the game so that its d3d11 calls go
