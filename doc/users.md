@@ -86,6 +86,17 @@ accept_takeover = true
 
 to `edloader.txt`: edloader logs the takeover and still passes the calls on down the list, at your own risk.
 
+## The Epic Games Store: Epic's overlay
+
+The game from the Epic Games Store loads Epic's overlay, `EOSOVH-Win64-Shipping.dll`. A second or two after the
+game has made its graphics device, the overlay rewires the game's `D3D11CreateDevice` and the `LoadLibrary` and
+`GetProcAddress` imports of most of the dlls in the game, so the log fills with many `TAKEOVER:` lines naming it.
+That is Epic's overlay at work, not a broken install. Without `accept_takeover = true` edloader stops at the first
+of those lines: a device asked for after it goes to the system d3d11 and no mod of the list sees it. With the line
+edloader keeps passing the calls on, and the overlay's own device goes down the list too (its line says
+`called from EOSOVH-Win64-Shipping.dll`). edworld (from 1.2.0-beta.7) does not follow a device asked for from
+outside the game's folder (`not followed` in its log) and stays with the game's.
+
 ## Check that it works
 
 Open `edloader\logs\edloader.log` after starting the game. It lists the mods it loaded (`chain[0] = ...`) and
