@@ -15,7 +15,8 @@ page, with an example list, `edloader.txt.example`.
    - Windows: `C:\Users\<you>\edloader`.
    - Linux, Steam with Proton: `steamapps/compatdata/359320/pfx/drive_c/users/steamuser/edloader`.
 
-   Start the game once with edloader installed and it makes this folder with `plugins`, `config` and `logs` in it.
+   On a first install this folder is not there yet: make `edloader` with a `plugins` folder in it yourself. On its
+   first start edloader adds `config` and `logs` (and `plugins`, if it is missing).
 3. Move each mod's `d3d11.dll` out of the game's folder into `edloader\plugins`, under a name of its own, for
    example `d3d11_edvr.dll`, `edworld.dll`, `d3d11_edhm.dll`. Move EDHM's `d3dx.ini`, `d3dcompiler_47.dll`,
    `ShaderFixes` and `EDHM-ini` with it: without them it does not start (`cannot load (error 1114)` in `edloader.log`).
