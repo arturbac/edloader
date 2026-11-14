@@ -16,7 +16,8 @@ need EDWORLD_WINEPREFIX "a wine prefix kept between runs"
 EDW=$EDWORLD_DIR
 EDWB=$EDWORLD_BUILD
 for f in "$BUILD/d3d11.dll" "$BUILD/test/fake_a.dll" "$BUILD/test/fake_b.dll" "$BUILD/test/fake_intruder.dll" \
-         "$BUILD/test/fake_hooker.dll" "$EDWB/test/edworld/test_app.exe" "$EDWB/edworld/edworld.dll"; do
+         "$BUILD/test/fake_hooker.dll" "$EDWB/test/edworld/test_app.exe" "$EDWB/edworld/edworld.dll" \
+         "$EDWB/test/test_foreign.dll"; do
   [[ -f $f ]] || { echo "$0: no $f (build first)" >&2; exit 1; }
 done
 cd "$HERE"
@@ -25,6 +26,9 @@ RUN=$(mktemp -d "$SCR/edloader-test.XXXXXX")
 GAME=$RUN/game ROOT=$RUN/root ELSEWHERE=$RUN/elsewhere
 mkdir -p "$GAME" "$ROOT/plugins" "$ELSEWHERE"
 cp "$BUILD/d3d11.dll" "$EDWB/test/edworld/test_app.exe" "$EDW/test/data/edsm_factions_shinrarta.json" "$GAME/"
+# edworld's test_app makes an overlay's device from another folder (edworld from 1.2.0-beta.7)
+mkdir -p "$GAME/overlay"
+cp "$EDWB/test/test_foreign.dll" "$GAME/overlay/"
 cp "$BUILD/test/fake_a.dll" "$BUILD/test/fake_b.dll" "$ROOT/plugins/"
 cp "$EDWB/edworld/edworld.dll" "$ELSEWHERE/"
 win() { echo "Z:${1//\//\\}"; }
@@ -48,7 +52,8 @@ echo "--- order.txt"; cat order.txt
 echo "--- edloader.log"; cat "$ROOT/logs/edloader.log"
 fail() { echo "FAIL: $*"; exit 1; }
 grep -q "PASSED" test_app.out || fail "edworld checks through the chain"
-[[ $(tr '\n' ' ' < order.txt) == "fake_a fake_b " ]] || fail "order '$(tr '\n' ' ' < order.txt)'"
+# the game's device and then the overlay's, each down the whole list
+[[ $(tr '\n' ' ' < order.txt) == "fake_a fake_b "* ]] || fail "order '$(tr '\n' ' ' < order.txt)'"
 grep -q "hr 0x00000000 through 3 element(s)" "$ROOT/logs/edloader.log" || fail "chain of 3"
 [[ -s $ROOT/logs/edworld.log ]] || fail "edworld.log not in logs"
 for f in edloader.log edworld.log edloader.txt; do [[ ! -e $GAME/$f ]] || fail "$f beside the game"; done
@@ -78,6 +83,20 @@ for accept in no yes; do
     [[ $(tr '\n' ' ' < order.txt) == "fake_a "* ]] || fail "the list not called with accept_takeover"
   fi
 done
+# the same intruder under the name of Epic's overlay, a known taker: accepted without accept_takeover, said once
+cp "$BUILD/test/fake_intruder.dll" "$ROOT/plugins/EOSOVH-Win64-Shipping.dll"
+: > order.txt
+: > "$ROOT/logs/edloader.log"
+printf '+EOSOVH-Win64-Shipping.dll\nfake_a.dll\n' > "$ROOT/edloader.txt"
+set +e
+wine test_app.exe > test_app_known.out
+set -e
+echo "--- edloader.log, known taker"; cat "$ROOT/logs/edloader.log"
+grep -q "EOSOVH-Win64-Shipping.dll is Epic's overlay, a known taker: accepted" "$ROOT/logs/edloader.log" \
+  || fail "Epic's overlay accepted as a known taker"
+! grep -q "edloader stops" "$ROOT/logs/edloader.log" || fail "edloader stopped at a known taker"
+[[ $(grep -c "a known taker: accepted" "$ROOT/logs/edloader.log") == 1 ]] || fail "a known taker told more than once"
+[[ $(tr '\n' ' ' < order.txt) == "fake_a "* ]] || fail "the list not called after a known taker"
 # a dll that hooks edloader's own D3D11CreateDevice in its DllMain, as 3Dmigoto (EDHM) does: put back, the list runs
 cp "$BUILD/test/fake_hooker.dll" "$ROOT/plugins/"
 : > order.txt

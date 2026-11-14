@@ -156,15 +156,43 @@ namespace
     void * system;                ///< the system copy's function
     };
 
+  ///\brief dlls known to take the game's calls for a reason of their own, not a mod's: their takeover is accepted
+  /// without accept_takeover and logged once in short. Epic's overlay rewires the game's D3D11CreateDevice and the
+  /// loader's functions of nearly every dll a moment after the game's first device
+  struct known_taker_t
+    {
+    wchar_t const * file;
+    char const * what;
+    std::uint32_t imports;  ///< imports of the loader's functions leading to it, at the last sweep
+    bool told;
+    };
+
+  known_taker_t known_takers[]{{L"EOSOVH-Win64-Shipping.dll", "Epic's overlay", 0u, false}};
+
+  auto known_taker(std::wstring const & module) noexcept -> known_taker_t *
+    {
+    for(known_taker_t & k: known_takers)
+      if(_wcsicmp(module.c_str(), k.file) == 0)
+        return &k;
+    return nullptr;
+    }
+
   ///\brief a dll took the game's d3d11 calls past the list (or something had before edloader started): edloader
   /// stops passing calls down the list unless the list accepts it (`accept_takeover = true` in edloader.txt)
   bool takeover{};
   bool accept_takeover{};
   bool stopped{};
 
-  ///\brief what made edloader stop, said once
-  auto take_over(std::string const & what) noexcept -> void
+  ///\brief what made edloader stop, said once; by: the dll that took the calls, when known
+  auto take_over(std::string const & what, std::wstring const & by = {}) noexcept -> void
     {
+    if(known_taker_t * const k{known_taker(by)})
+      {
+      if(not k->told)
+        log_line("TAKEOVER: %s; %S is %s, a known taker: accepted, the list is passed on", what.c_str(), k->file, k->what);
+      k->told = true;
+      return;
+      }
     takeover = true;
     if(accept_takeover)
       {
@@ -323,7 +351,7 @@ namespace
           {
           log_line("%s: the game's import of %s now leads to %S (%p)", when, w.name, module_of(now).c_str(), now);
           if(module_of(now) != module_of(w.last))
-            take_over(std::string{when} + ": " + narrow(module_of(now)) + " took the game's import of " + w.name);
+            take_over(std::string{when} + ": " + narrow(module_of(now)) + " took the game's import of " + w.name, module_of(now));
           w.last = now;
           }
         }
@@ -337,7 +365,8 @@ namespace
           log_line("%s: the system d3d11's %s starts differently now%s%S", when, w.name, to ? ", a jump to " : " (no jump read)",
                    to ? module_of(to).c_str() : L"");
           take_over(std::string{when} + ": the system d3d11's " + w.name + " was hooked inline" +
-                    (to ? " (a jump to " + narrow(module_of(to)) + ")" : std::string{}));
+                      (to ? " (a jump to " + narrow(module_of(to)) + ")" : std::string{}),
+                    to ? module_of(to) : std::wstring{});
           std::memcpy(w.prologue, now, sizeof now);
           }
         }
@@ -467,6 +496,7 @@ namespace
     HANDLE const snap{CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, GetCurrentProcessId())};
     if(snap == INVALID_HANDLE_VALUE)
       return;
+    std::uint32_t known_now[std::size(known_takers)]{};
     MODULEENTRY32W m{};
     m.dwSize = sizeof m;
     for(BOOL ok{Module32FirstW(snap, &m)}; ok; ok = Module32NextW(snap, &m))
@@ -497,6 +527,11 @@ namespace
             std::wstring const to{module_of(now)};
             if(_wcsicmp(to.c_str(), m.szModule) == 0)
               break;  // the module's own wrapper of its own import: not a takeover of others
+            if(known_taker_t const * const k{known_taker(to)})
+              {
+              ++known_now[k - known_takers];
+              break;  // a known taker's: left as it is, told in short below
+              }
             std::string const what{std::string{when} + ": " + narrow(m.szModule) + "'s import of " + fn + " leads to " + narrow(to)};
             if(accept_takeover)
               {
@@ -518,6 +553,13 @@ namespace
         }
       }
     CloseHandle(snap);
+    for(std::size_t i{}; i != std::size(known_takers); ++i)
+      if(known_now[i] != known_takers[i].imports)
+        {
+        log_line("TAKEOVER: %s: %u imports of the loader's functions lead to %S, %s, a known taker: left as they are", when,
+                 known_now[i], known_takers[i].file, known_takers[i].what);
+        known_takers[i].imports = known_now[i];
+        }
     }
 
   ///\brief the first bytes of an exported function as the dll's file on disk has them; false when they cannot be

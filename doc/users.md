@@ -91,14 +91,16 @@ to `edloader.txt`: edloader logs the takeover and still passes the calls on down
 
 The game from the Epic Games Store loads Epic's overlay, `EOSOVH-Win64-Shipping.dll`. A second or two after the
 game has made its graphics device, the overlay rewires the game's `D3D11CreateDevice` and the `LoadLibrary` and
-`GetProcAddress` imports of most of the dlls in the game, so the log fills with many `TAKEOVER:` lines naming it.
-That is Epic's overlay at work, not a broken install. Without `accept_takeover = true` edloader stops at the first
-of those lines: a device asked for after it goes to the system d3d11 and no mod of the list sees it. With the line
-edloader keeps passing the calls on, and the overlay's own device goes down the list too (its line says
-`called from EOSOVH-Win64-Shipping.dll`). edworld (from 1.2.0-beta.7) does not follow a device asked for from
-outside the game's folder (`not followed` in its log) and stays with the game's. So with the game from the Epic
-Games Store add `accept_takeover = true` to `edloader.txt`, the mod that takes the calls (Epic's overlay) being
-outside the list.
+`GetProcAddress` imports of most of the dlls in the game. That is Epic's overlay at work, not a broken install.
+edloader knows it: it does not stop for it and needs nothing set; the log says so once
+(`EOSOVH-Win64-Shipping.dll is Epic's overlay, a known taker: accepted`) and counts the imports in one line
+(`... imports of the loader's functions lead to EOSOVH-Win64-Shipping.dll`). The overlay's own device goes down the
+list too (its line says `called from EOSOVH-Win64-Shipping.dll`). edworld (from 1.2.0-beta.7) does not follow a
+device asked for from outside the game's folder (`not followed` in its log) and stays with the game's.
+
+edloader 1.0.1 and older does not know the overlay: there the log fills with `TAKEOVER:` lines naming it, and
+without `accept_takeover = true` in `edloader.txt` edloader stops at the first of them, so a device asked for after
+it goes to the system d3d11 and no mod of the list sees it. With such an edloader add that line.
 
 ## Check that it works
 
