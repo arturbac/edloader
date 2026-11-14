@@ -2,7 +2,7 @@
 
 edloader lets Elite Dangerous use several d3d11 mods at once, for example EDHM, EDVR and edworld. Each of those
 mods wants to be the game's `d3d11.dll`, and only one file can have that name. edloader takes the name and loads
-the mods one after another, in the order you list them in a text file.
+the mods one after another, in the order you list them in a text file. Any one of them alone works too: edworld is not needed for EDHM or EDVR.
 
 ## Install
 
@@ -95,7 +95,8 @@ That is Epic's overlay at work, not a broken install. Without `accept_takeover =
 of those lines: a device asked for after it goes to the system d3d11 and no mod of the list sees it. With the line
 edloader keeps passing the calls on, and the overlay's own device goes down the list too (its line says
 `called from EOSOVH-Win64-Shipping.dll`). edworld (from 1.2.0-beta.7) does not follow a device asked for from
-outside the game's folder (`not followed` in its log) and stays with the game's.
+outside the game's folder (`not followed` in its log) and stays with the game's. So with the game from the Epic Games Store add
+`accept_takeover = true` to `edloader.txt`, the mod that takes the calls (Epic's overlay) being outside the list.
 
 ## Check that it works
 
