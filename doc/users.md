@@ -125,6 +125,22 @@ edloader 1.1.0 and older does not know ReShade: it stops (`TAKEOVER: before edlo
 D3D11CreateDevice differs from its file`) and no mod of the list is called. With such an edloader add
 `accept_takeover = true` to `edloader.txt`.
 
+## An antivirus
+
+Some antivirus programs hook the game too: Bitdefender's `bdhkm64.dll` and `atcuf64.dll` (seen in a player's log)
+are in the process before edloader starts and change kernelbase's `LoadLibrary` and `GetProcAddress`. edloader only
+logs those (`before edloader started: kernelbase's ... differs from its file ... (said, not stopped for)`). If the
+antivirus hooks the system d3d11 as well and no ReShade is loaded, edloader stops (`TAKEOVER: before edloader started:
+the system d3d11's D3D11CreateDevice differs from its file`) and no mod of the list is called. Then add
+
+```
+accept_takeover = true
+```
+
+to `edloader.txt`. edloader does not accept an antivirus's takeover by itself: with it present, a takeover by a
+misplaced mod would pass unnoticed too. edworld from 1.2.0-beta.13 needs nothing set for Bitdefender (its
+`creator_pass` lists `bdhkm64.dll` by default).
+
 ## Check that it works
 
 Open `edloader\logs\edloader.log` after starting the game. It lists the mods it loaded (`chain[0] = ...`) and

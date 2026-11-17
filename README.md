@@ -23,12 +23,16 @@ each with the time in UTC to the millisecond:
 
 Changing the order or taking a mod out is an edit of one line, and the next start's log says what came of it.
 
-- Players: [doc/users.md](doc/users.md): install, the list, checking it works, after a verification of the
-  game's files, removing it.
+Some programs take the game's calls for reasons of their own; edloader knows two and needs nothing set for them:
+Epic's overlay (the Epic Games Store) and, from 1.2.0, ReShade as `dxgi.dll`. An antivirus whose hook of the
+system d3d11 stops edloader still needs `accept_takeover = true` in `edloader.txt` (doc/users.md: an antivirus).
+
+- Players: [doc/users.md](doc/users.md): install, the list, ReShade, an antivirus, checking it works, after a
+  verification of the game's files, removing it.
 - Developers: [doc/developers.md](doc/developers.md): how the chain is wired, what a plugin gets, build and test.
 
 Status: tested under wine without the game (`tools/test.sh`), and in the game under Proton (Steam) with
-edworld_eht and EDHM (3Dmigoto) in the list.
+edworld_eht and EDHM (3Dmigoto) in the list, also behind ReShade 6.8.0.
 
 MIT licence (LICENSE). edloader builds on the work of the
 [EDVR unofficial patch](https://github.com/characterecho-sean/edvr-unofficial-patch) team (MIT): the proxy loading
