@@ -22,7 +22,6 @@
 #include <cstdio>
 #include <cstring>
 #include <iterator>
-#include <mutex>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -66,7 +65,7 @@ namespace
   element_t system_element;
   std::vector<element_t> chain;
   std::FILE * log_file{};
-  std::mutex log_mutex;
+  SRWLOCK log_lock = SRWLOCK_INIT;  ///< no std::mutex: its lock may throw, and log_line runs where nothing may
 
   auto log_line(char const * fmt, ...) noexcept -> void
     {
@@ -81,13 +80,16 @@ namespace
     )};
     va_list args;
     va_start(args, fmt);
-    int const m{std::vsnprintf(buf + n, sizeof buf - static_cast<std::size_t>(n) - 2, fmt, args)};
+    int const room{static_cast<int>(sizeof buf) - n - 1};  // one byte kept for the line's end
+    int const m{std::vsnprintf(buf + n, static_cast<std::size_t>(room), fmt, args)};
     va_end(args);
-    n = m < 0 ? n : std::min<int>(n + m, static_cast<int>(sizeof buf) - 2);
+    // a cut line ends where vsnprintf put its terminator, which the line's end replaces: no NUL in the log
+    n += m < 0 ? 0 : std::min(m, room - 1);
     buf[n++] = '\n';
-    std::lock_guard const lock{log_mutex};
+    AcquireSRWLockExclusive(&log_lock);
     std::fwrite(buf, 1, static_cast<std::size_t>(n), log_file);
     std::fflush(log_file);
+    ReleaseSRWLockExclusive(&log_lock);
     }
 
   auto loader_phase() noexcept -> void
@@ -226,9 +228,10 @@ namespace
       k->told = true;
       return;
       }
-    // a hook into memory of no module (or of no module told) with ReShade loaded is ReShade's
-    if(by.empty() or by == L"?")
-      if(std::wstring const reshade{reshade_loaded()}; not reshade.empty())
+    // a hook into memory of no module (or of no module told), or into ReShade's own dll, with ReShade loaded is ReShade's
+    if(by.empty() or by == L"?" or not listed(by))
+      if(std::wstring const reshade{reshade_loaded()};
+         not reshade.empty() and (by.empty() or by == L"?" or _wcsicmp(by.c_str(), reshade.c_str()) == 0))
         {
         if(not reshade_told)
           log_line("TAKEOVER: %s; ReShade is loaded (%S), a known taker: accepted, the list is passed on", what.c_str(),
@@ -285,21 +288,42 @@ namespace
     return name;
     }
 
-  ///\brief where a jump at the start of a function leads (E9 rel32, FF 25 [rip+rel32], 48 B8 imm64 + FF E0); null if none
-  auto jump_target(std::uint8_t const * p) -> void const *
+  ///\brief whether `bytes` bytes at `p` can be read now (committed, readable, no guard page)
+  auto readable(void const * p, std::size_t bytes) noexcept -> bool
     {
+    MEMORY_BASIC_INFORMATION info{};
+    if(VirtualQuery(p, &info, sizeof info) != sizeof info or info.State != MEM_COMMIT)
+      return false;
+    DWORD const readable_access{PAGE_READONLY | PAGE_READWRITE | PAGE_WRITECOPY | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE
+                                | PAGE_EXECUTE_WRITECOPY};
+    if(not(info.Protect & readable_access) or (info.Protect & PAGE_GUARD))
+      return false;
+    auto const end{static_cast<std::uint8_t const *>(info.BaseAddress) + info.RegionSize};
+    return static_cast<std::uint8_t const *>(p) + bytes <= end;
+    }
+
+  ///\brief where a jump at the start of a function leads (E9 rel32, FF 25 [rip+rel32], 48 B8 imm64 + FF E0); null if
+  /// none. `p` holds the function's first bytes as read (a copy), `origin` is where the function itself starts: the
+  /// relative forms count from the function, not from the copy. The pointer of FF 25 is read only when readable
+  auto jump_target(std::uint8_t const * p, void const * origin) -> void const *
+    {
+    auto const at{static_cast<std::uint8_t const *>(origin)};
     if(p[0] == 0xE9)
       {
       std::int32_t rel;
       std::memcpy(&rel, p + 1, 4);
-      return p + 5 + rel;
+      return at + 5 + rel;
       }
     if(p[0] == 0xFF and p[1] == 0x25)
       {
       std::int32_t rel;
       std::memcpy(&rel, p + 2, 4);
-      void const * target;
-      std::memcpy(&target, p + 6 + rel, sizeof target);
+      void const * const slot{at + 6 + rel};
+      void const * target{};
+      if(rel >= 0 and rel <= 2)
+        std::memcpy(&target, p + 6 + rel, sizeof target);  // within the 16 bytes read: the copy holds it
+      else if(readable(slot, sizeof target))
+        std::memcpy(&target, slot, sizeof target);
       return target;
       }
     if(p[0] == 0x48 and p[1] == 0xB8 and p[10] == 0xFF and p[11] == 0xE0)
@@ -350,7 +374,7 @@ namespace
   void * own_create{};          ///< edloader's own D3D11CreateDevice export
 
   ///\brief what LoadLibrary("d3d11.dll") and GetProcAddress hand out now: edloader itself, unless someone redirects them
-  auto check_loader(char const * when) noexcept -> void
+  auto check_loader(char const * when) -> void
     {
     for(watched_loader_t & w: watched_loader)
       {
@@ -360,7 +384,7 @@ namespace
       std::memcpy(now, w.function, sizeof now);
       if(std::memcmp(now, w.prologue, sizeof now) != 0)
         {
-        void const * const to{jump_target(now)};
+        void const * const to{jump_target(now, w.function)};
         log_line("%s: kernelbase's %s starts differently now%s%S", when, w.name, to ? ", a jump to " : " (no jump read)",
                  to ? module_of(to).c_str() : L"");
         // 3Dmigoto hooks LoadLibraryExW for its own load_library_redirect; edloader's chain does not go through the
@@ -389,7 +413,7 @@ namespace
     }
 
   ///\brief compares the game's import slots and the system copy's first bytes with the last check; logs changes
-  auto check_takers(char const * when) noexcept -> void
+  auto check_takers(char const * when) -> void
     {
     for(watched_import_t & w: watched_imports)
       {
@@ -410,7 +434,7 @@ namespace
         std::memcpy(now, w.system, sizeof now);
         if(std::memcmp(now, w.prologue, sizeof now) != 0)
           {
-          void const * const to{jump_target(now)};
+          void const * const to{jump_target(now, w.system)};
           log_line("%s: the system d3d11's %s starts differently now%s%S", when, w.name, to ? ", a jump to " : " (no jump read)",
                    to ? module_of(to).c_str() : L"");
           take_over(std::string{when} + ": the system d3d11's " + w.name + " was hooked inline" +
@@ -482,7 +506,7 @@ namespace
 
   ///\brief every export of edloader's own table (the wrapped D3D11CreateDevice(AndSwapChain) among them, which the
   /// generated thunk list lacks), its first 32 bytes, before any dll of the list is loaded
-  auto keep_own_exports() noexcept -> void
+  auto keep_own_exports() -> void
     {
     auto const base{reinterpret_cast<std::uint8_t *>(self_module)};
     auto const nt{reinterpret_cast<IMAGE_NT_HEADERS const *>(base + reinterpret_cast<IMAGE_DOS_HEADER const *>(base)->e_lfanew)};
@@ -507,7 +531,7 @@ namespace
 
   ///\brief puts back the first bytes of edloader's exports a dll overwrote (3Dmigoto's HookD3D11 from its DllMain), naming
   /// that dll: the one just loaded (a hook library jumps through its own stub, so the jump's module would say nothing)
-  auto guard_own_exports(char const * when, char const * who) noexcept -> void
+  auto guard_own_exports(char const * when, char const * who) -> void
     {
     for(own_export_t const & e: own_exports)
       {
@@ -528,9 +552,20 @@ namespace
       }
     }
 
+  ///\brief a protection that adds writing to what the page has: an import table on a page with code (merged sections)
+  /// keeps its execute right while it is written, so another thread running that page does not fault
+  auto writable_like(void const * p) noexcept -> DWORD
+    {
+    MEMORY_BASIC_INFORMATION info{};
+    if(VirtualQuery(p, &info, sizeof info) != sizeof info)
+      return PAGE_READWRITE;
+    DWORD const execute{PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY};
+    return (info.Protect & execute) ? PAGE_EXECUTE_READWRITE : PAGE_READWRITE;
+    }
+
   ///\brief every module's imports of the loader's functions: logged when they lead past kernel32/kernelbase, put back
   /// unless accept_takeover; once a frame of device calls at most
-  auto sweep_loader_imports(char const * when) noexcept -> void
+  auto sweep_loader_imports(char const * when) -> void
     {
     HMODULE const kernel32{GetModuleHandleW(L"kernel32.dll")}, kernelbase{GetModuleHandleW(L"kernelbase.dll")};
     void * real[std::size(loader_functions)]{};
@@ -588,7 +623,7 @@ namespace
               break;
               }
             DWORD old{};
-            if(VirtualProtect(&slots->u1.Function, sizeof(void *), PAGE_READWRITE, &old))
+            if(VirtualProtect(&slots->u1.Function, sizeof(void *), writable_like(&slots->u1.Function), &old))
               {
               slots->u1.Function = reinterpret_cast<ULONG_PTR>(real[i]);
               VirtualProtect(&slots->u1.Function, sizeof(void *), old, &old);
@@ -626,14 +661,19 @@ namespace
     for(std::size_t n; (n = std::fread(buf, 1, sizeof buf, f)) > 0;)
       file.insert(file.end(), buf, buf + n);
     std::fclose(f);
-    auto const at = [&](std::size_t off, std::size_t len) { return off + len <= file.size(); };
+    // every offset read from the file is checked against it: a cut or damaged dll is "not comparable", never a read
+    // past the buffer
+    auto const at = [&](std::size_t off, std::size_t len) { return off <= file.size() and len <= file.size() - off; };
     if(not at(0, sizeof(IMAGE_DOS_HEADER)))
       return why = L"not a dll", false;
     auto const dos{reinterpret_cast<IMAGE_DOS_HEADER const *>(file.data())};
-    if(not at(static_cast<std::size_t>(dos->e_lfanew), sizeof(IMAGE_NT_HEADERS64)))
+    if(dos->e_lfanew < 0 or not at(static_cast<std::size_t>(dos->e_lfanew), sizeof(IMAGE_NT_HEADERS64)))
       return why = L"not a dll", false;
     auto const nt{reinterpret_cast<IMAGE_NT_HEADERS64 const *>(file.data() + dos->e_lfanew)};
     auto const sections{IMAGE_FIRST_SECTION(nt)};
+    if(not at(static_cast<std::size_t>(reinterpret_cast<std::uint8_t const *>(sections) - file.data()),
+              std::size_t{nt->FileHeader.NumberOfSections} * sizeof(IMAGE_SECTION_HEADER)))
+      return why = L"not a dll", false;
     auto const to_offset = [&](DWORD rva) -> std::size_t
       {
       for(WORD i{}; i != nt->FileHeader.NumberOfSections; ++i)
@@ -648,16 +688,21 @@ namespace
     auto const exp{reinterpret_cast<IMAGE_EXPORT_DIRECTORY const *>(file.data() + eo)};
     std::size_t const names{to_offset(exp->AddressOfNames)}, ords{to_offset(exp->AddressOfNameOrdinals)}, funcs{to_offset(exp->AddressOfFunctions)};
     DWORD rva{};
+    std::size_t const function_size{std::strlen(function) + 1};
     for(DWORD i{}; i != exp->NumberOfNames and names != SIZE_MAX and ords != SIZE_MAX and funcs != SIZE_MAX; ++i)
       {
+      if(not at(names + std::size_t{i} * 4, 4) or not at(ords + std::size_t{i} * 2, 2))
+        break;
       DWORD name_rva;
-      std::memcpy(&name_rva, file.data() + names + i * 4, 4);
+      std::memcpy(&name_rva, file.data() + names + std::size_t{i} * 4, 4);
       std::size_t const no{to_offset(name_rva)};
-      if(no == SIZE_MAX or std::strcmp(reinterpret_cast<char const *>(file.data() + no), function) != 0)
+      if(no == SIZE_MAX or not at(no, function_size) or std::memcmp(file.data() + no, function, function_size) != 0)
         continue;
       WORD ord;
-      std::memcpy(&ord, file.data() + ords + i * 2, 2);
-      std::memcpy(&rva, file.data() + funcs + ord * 4, 4);
+      std::memcpy(&ord, file.data() + ords + std::size_t{i} * 2, 2);
+      if(not at(funcs + std::size_t{ord} * 4, 4))
+        break;
+      std::memcpy(&rva, file.data() + funcs + std::size_t{ord} * 4, 4);
       break;
       }
     if(rva == 0)
@@ -666,7 +711,8 @@ namespace
       return why = L"forwarded", false;
     // a relocation inside the first bytes would differ in memory without anyone's hook
     IMAGE_DATA_DIRECTORY const & rd{nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC]};
-    for(std::size_t ro{to_offset(rd.VirtualAddress)}, end{ro + rd.Size}; ro != SIZE_MAX and ro + 8 <= end and at(ro, 8);)
+    std::size_t const reloc{to_offset(rd.VirtualAddress)};
+    for(std::size_t ro{reloc}, end{reloc == SIZE_MAX ? 0 : reloc + rd.Size}; ro != SIZE_MAX and ro + 8 <= end and at(ro, 8);)
       {
       auto const block{reinterpret_cast<IMAGE_BASE_RELOCATION const *>(file.data() + ro)};
       if(block->SizeOfBlock < 8)
@@ -689,7 +735,7 @@ namespace
     }
 
   ///\brief the modules in the process when edloader starts: whoever was there may have changed d3d11 already
-  auto log_modules() noexcept -> void
+  auto log_modules() -> void
     {
     HANDLE const snap{CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, GetCurrentProcessId())};
     if(snap == INVALID_HANDLE_VALUE)
@@ -709,7 +755,7 @@ namespace
 
   ///\brief the starting point of the checks: where the game's imports lead and the system copy's first bytes,
   /// against the system copy's file on disk (a hook made before edloader started shows there)
-  auto start_takers() noexcept -> void
+  auto start_takers() -> void
     {
     log_modules();
     find_game_imports();
@@ -730,7 +776,7 @@ namespace
           log_line("kernelbase's %s cannot be compared with its file (%S)", w.name, why.c_str());
         else if(std::memcmp(disk, w.prologue, sizeof disk) != 0)
           {
-          void const * const to{jump_target(w.prologue)};
+          void const * const to{jump_target(w.prologue, w.function)};
           log_line("before edloader started: kernelbase's %s differs from its file%s%S (said, not stopped for)", w.name,
                    to ? " (a jump to " : "", to ? (module_of(to) + L")").c_str() : L"");
           }
@@ -752,9 +798,10 @@ namespace
           log_line("the system d3d11's %s cannot be compared with its file (%S)", w.name, why.c_str());
         else if(std::memcmp(disk, w.prologue, sizeof disk) != 0)
           {
-          void const * const to{jump_target(w.prologue)};
+          void const * const to{jump_target(w.prologue, w.system)};
           take_over(std::string{"before edloader started: the system d3d11's "} + w.name + " differs from its file" +
-                    (to ? " (a jump to " + narrow(module_of(to)) + ")" : std::string{}));
+                      (to ? " (a jump to " + narrow(module_of(to)) + ")" : std::string{}),
+                    to ? module_of(to) : std::wstring{});
           }
         else
           log_line("the system d3d11's %s is as its file has it", w.name);
@@ -894,9 +941,39 @@ namespace
     return lab;
     }
 
-  INIT_ONCE init_once = INIT_ONCE_STATIC_INIT;
+  // ---- edloader's own work in the game's process: a fault or an exception there is logged and that step skipped ----
+  // Reading other modules' headers, import tables and memory (a module unloaded meanwhile, a page gone) and the
+  // strings of the checks (out of memory) must never end the game. The steps below are not noexcept, so a C++
+  // exception reaches the handler; it catches hardware faults and C++ exceptions alike.
+  auto guarded(char const * what, void (*step)(char const *), char const * when) noexcept -> bool
+    {
+    DWORD code{};
+    __try
+      {
+      step(when);
+      return true;
+      }
+    __except(code = GetExceptionCode(), EXCEPTION_EXECUTE_HANDLER)
+      {
+      log_line("%s: failed (exception 0x%08lX%s); skipped", what, code, code == 0xE06D7363u ? ", a C++ exception" : "");
+      return false;
+      }
+    }
 
-  BOOL CALLBACK init_callback(PINIT_ONCE, PVOID, PVOID *)
+  // the checks at a device change edloader's records of the last state: one thread at a time
+  SRWLOCK checks_lock = SRWLOCK_INIT;
+
+  auto device_checks(char const * when) noexcept -> void
+    {
+    AcquireSRWLockExclusive(&checks_lock);
+    guarded("own exports", [](char const * w) { guard_own_exports(w, "a dll"); }, when);
+    guarded("takers", [](char const * w) { check_takers(w); }, when);
+    guarded("loader", [](char const * w) { check_loader(w); }, when);
+    guarded("loader imports", [](char const * w) { sweep_loader_imports(w); }, when);
+    ReleaseSRWLockExclusive(&checks_lock);
+    }
+
+  auto init_steps(char const *) -> void
     {
     root_dir = find_root_dir();
     make_dirs(root_dir);
@@ -906,15 +983,22 @@ namespace
     // the plugins' own files: plugins made for edloader read these, without edloader they fall back to beside their dll
     SetEnvironmentVariableW(L"EDLOADER_CONFIG_DIR", (root_dir + L"\\config").c_str());
     SetEnvironmentVariableW(L"EDLOADER_LOG_DIR", (root_dir + L"\\logs").c_str());
-    start_takers();
-    keep_own_exports();
-    load_list();
-    sweep_loader_imports("after the list");
+    guarded("start", [](char const *) { start_takers(); }, nullptr);
+    guarded("own exports kept", [](char const *) { keep_own_exports(); }, nullptr);
+    guarded("the list", [](char const *) { load_list(); }, nullptr);
+    guarded("loader imports", [](char const * w) { sweep_loader_imports(w); }, "after the list");
     if(takeover and accept_takeover and stopped)
       {
       stopped = false;  // found before the list's accept_takeover was read
       log_line("TAKEOVER accepted (accept_takeover = true): the list is passed on, at your own risk");
       }
+    }
+
+  INIT_ONCE init_once = INIT_ONCE_STATIC_INIT;
+
+  BOOL CALLBACK init_callback(PINIT_ONCE, PVOID, PVOID *)
+    {
+    guarded("edloader's start", &init_steps, nullptr);
     return TRUE;
     }
 
@@ -995,10 +1079,7 @@ extern "C" HRESULT WINAPI edvr_impl_D3D11CreateDevice(
   if(depth == 1)
     {
     entered = 0;
-    guard_own_exports("at D3D11CreateDevice", "a dll");
-    check_takers("at D3D11CreateDevice");
-    check_loader("at D3D11CreateDevice");
-    sweep_loader_imports("at D3D11CreateDevice");
+    device_checks("at D3D11CreateDevice");
     }
   element_t const & target{route(_ReturnAddress(), "D3D11CreateDevice")};
   if(not target.create)
@@ -1036,10 +1117,7 @@ extern "C" HRESULT WINAPI edvr_impl_D3D11CreateDeviceAndSwapChain(
   if(depth == 1)
     {
     entered = 0;
-    guard_own_exports("at D3D11CreateDeviceAndSwapChain", "a dll");
-    check_takers("at D3D11CreateDeviceAndSwapChain");
-    check_loader("at D3D11CreateDeviceAndSwapChain");
-    sweep_loader_imports("at D3D11CreateDeviceAndSwapChain");
+    device_checks("at D3D11CreateDeviceAndSwapChain");
     }
   element_t const * target{&route(_ReturnAddress(), "D3D11CreateDeviceAndSwapChain")};
   // An element without the swap-chain export cannot take this call; the next one that has it does.

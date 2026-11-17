@@ -1,6 +1,7 @@
 # The chain test's dlls (tools/test.sh runs them under wine): fake_a and fake_b (one source, a name each),
 # fake_intruder (takes the game's import in its DllMain), fake_hooker (hooks edloader's own export, as 3Dmigoto does),
-# fake_reshade (exports ReShadeRegisterAddon and hooks the system d3d11 inline through a stub of no module, as ReShade does).
+# fake_reshade (exports ReShadeRegisterAddon and hooks the system d3d11 inline through a stub of no module, as ReShade does),
+# fake_jumper (hooks the system d3d11 inline with jmp [rip+rel32], rel32 far from 0, through a pointer near the function).
 set(test_out "${CMAKE_BINARY_DIR}/test")
 
 function(edloader_fake name source)
@@ -22,3 +23,4 @@ endforeach()
 edloader_fake(fake_intruder fake_intruder.cc)
 edloader_fake(fake_hooker fake_hooker.cc)
 edloader_fake(fake_reshade fake_reshade.cc)
+edloader_fake(fake_jumper fake_jumper.cc)

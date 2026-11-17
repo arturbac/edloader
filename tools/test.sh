@@ -16,7 +16,7 @@ need EDWORLD_WINEPREFIX "a wine prefix kept between runs"
 EDW=$EDWORLD_DIR
 EDWB=$EDWORLD_BUILD
 for f in "$BUILD/d3d11.dll" "$BUILD/test/fake_a.dll" "$BUILD/test/fake_b.dll" "$BUILD/test/fake_intruder.dll" \
-         "$BUILD/test/fake_hooker.dll" "$BUILD/test/fake_reshade.dll" "$EDWB/test/edworld/test_app.exe" "$EDWB/edworld/edworld.dll" \
+         "$BUILD/test/fake_hooker.dll" "$BUILD/test/fake_reshade.dll" "$BUILD/test/fake_jumper.dll" "$EDWB/test/edworld/test_app.exe" "$EDWB/edworld/edworld.dll" \
          "$EDWB/test/test_foreign.dll"; do
   [[ -f $f ]] || { echo "$0: no $f (build first)" >&2; exit 1; }
 done
@@ -124,4 +124,21 @@ grep -q "the system d3d11's D3D11CreateDevice was hooked inline (a jump to ?); R
 ! grep -q "edloader stops" "$ROOT/logs/edloader.log" || fail "edloader stopped at ReShade"
 [[ $(grep -c "a known taker: accepted" "$ROOT/logs/edloader.log") == 1 ]] || fail "ReShade told more than once"
 [[ $(tr '\n' ' ' < order.txt) == "fake_a reshade "* ]] || fail "order with ReShade '$(tr '\n' ' ' < order.txt)'"
+# a hook with jmp [rip+rel32], rel32 far from 0: where it leads is read from the function's own address, so the log
+# names the dll it leads into (counted from a copy of the bytes it would read a pointer from elsewhere); a dll of the
+# list, so edloader stops unless accept_takeover, and with it the list is called through the hook
+cp "$BUILD/test/fake_jumper.dll" "$ROOT/plugins/"
+: > order.txt
+: > "$ROOT/logs/edloader.log"
+printf 'accept_takeover = true\n+fake_jumper.dll\nfake_a.dll\n' > "$ROOT/edloader.txt"
+set +e
+wine test_app.exe > test_app_jumper.out
+set -e
+echo "--- edloader.log, jumper"; cat "$ROOT/logs/edloader.log"
+grep -q "the system d3d11's D3D11CreateDevice was hooked inline (a jump to fake_jumper.dll); accepted (accept_takeover = true)" \
+  "$ROOT/logs/edloader.log" || fail "a relative jump read from the function's address"
+! grep -q "failed (exception" "$ROOT/logs/edloader.log" || fail "a step of edloader failed"
+[[ $(tr '\n' ' ' < order.txt) == "fake_a jumper "* ]] || fail "order with a jumper '$(tr '\n' ' ' < order.txt)'"
+# no NUL in the log (a line cut at its buffer's end)
+! grep -qaP '\x00' "$ROOT/logs/edloader.log" || fail "a NUL in edloader.log"
 echo "chain test PASSED"

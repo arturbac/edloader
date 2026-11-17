@@ -32,7 +32,15 @@ by an inline hook on the system copy's function. edloader cannot prevent either,
   on disk (export table, file offset; a relocation inside those bytes makes them not comparable, and says so). A
   hook made before edloader started shows there.
 - After each dll of the list and at each device the game asks for, it compares the import and the bytes with the
-  last check; a change is a `TAKEOVER:` line naming the module the import or the jump now leads to.
+  last check; a change is a `TAKEOVER:` line naming the module the import or the jump now leads to. Where a jump
+  leads (`jump_target`: `E9 rel32`, `FF 25 [rip+rel32]`, `48 B8 imm64` + `FF E0`) is counted from the function's own
+  address, not from the copy of its bytes; the pointer of `FF 25` is read only from readable memory
+  (`test/fake_jumper.cc`: a `FF 25` hook whose pointer lies far from the function, the log naming the dll).
+- Reading the file on disk checks every offset against the file (a cut or damaged dll is "not comparable").
+- edloader's own steps in the game's process (the start, the list, the checks at each device) each run under a
+  handler that catches hardware faults and C++ exceptions alike: the step is logged as `failed (exception ...)`
+  and skipped, the game goes on. The checks at a device run one thread at a time. An import put back on a page that
+  holds code keeps its execute right while it is written.
 - On a takeover edloader stops: every call goes to the system copy, no element of the list is called. The line
   `accept_takeover = true` in `edloader.txt` (settings are read before any dll is loaded) keeps the list passed on,
   with the takeover logged. A plugin that takes over is then best first in the list: its own calls to `d3d11.dll`
@@ -42,8 +50,8 @@ by an inline hook on the system copy's function. edloader cannot prevent either,
   jump into memory of no module, a dll from outside the list) gets `accept_takeover = true` alone. While stopped the
   device line says `through 0 element(s)` and `did not call on` is not reported: no element was called.
 - ReShade is a known taker by its export `ReShadeRegisterAddon` (`reshade_loaded` in `src/edloader.cc`): its hook
-  on the system copy leads into memory of no module, so a takeover with no module told (`?`) is accepted while a
-  dll with that export is loaded. `test/fake_reshade.cc` stands in for it.
+  on the system copy leads into memory of no module, so a takeover with no module told (`?`), or one leading into the
+  dll with that export, is accepted while that dll is loaded. `test/fake_reshade.cc` stands in for it.
 - A few dlls are known takers (`known_takers` in `src/edloader.cc`; Epic's overlay `EOSOVH-Win64-Shipping.dll`):
   their takeover is accepted without the setting, told once, and the loader's imports leading to them are left as
   they are and counted in one line per sweep when the count changes, instead of a line each.
