@@ -196,6 +196,26 @@ namespace
     return false;
     }
 
+  ///\brief a loaded dll exporting ReShadeRegisterAddon (ReShade, under whatever name: dxgi.dll from its installer), its
+  /// file name; empty if none. ReShade hooks the system d3d11 inline, the jump leading into memory of no module, so it is
+  /// known by its export, not by where its hook leads (ReShade 6.8.0, 2026-11-17)
+  auto reshade_loaded() -> std::wstring
+    {
+    HANDLE const snap{CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, GetCurrentProcessId())};
+    if(snap == INVALID_HANDLE_VALUE)
+      return {};
+    std::wstring found;
+    MODULEENTRY32W m{};
+    m.dwSize = sizeof m;
+    for(BOOL ok{Module32FirstW(snap, &m)}; ok and found.empty(); ok = Module32NextW(snap, &m))
+      if(GetProcAddress(m.hModule, "ReShadeRegisterAddon"))
+        found = m.szModule;
+    CloseHandle(snap);
+    return found;
+    }
+
+  bool reshade_told{};
+
   ///\brief what made edloader stop, said once; by: the dll that took the calls, when known
   auto take_over(std::string const & what, std::wstring const & by = {}) noexcept -> void
     {
@@ -206,6 +226,16 @@ namespace
       k->told = true;
       return;
       }
+    // a hook into memory of no module (or of no module told) with ReShade loaded is ReShade's
+    if(by.empty() or by == L"?")
+      if(std::wstring const reshade{reshade_loaded()}; not reshade.empty())
+        {
+        if(not reshade_told)
+          log_line("TAKEOVER: %s; ReShade is loaded (%S), a known taker: accepted, the list is passed on", what.c_str(),
+                   reshade.c_str());
+        reshade_told = true;
+        return;
+        }
     takeover = true;
     if(accept_takeover)
       {

@@ -109,6 +109,22 @@ edloader 1.0.1 and older does not know the overlay: there the log fills with `TA
 without `accept_takeover = true` in `edloader.txt` edloader stops at the first of them, so a device asked for after
 it goes to the system d3d11 and no mod of the list sees it. With such an edloader add that line.
 
+## ReShade
+
+ReShade's installer puts it in the game's folder as `dxgi.dll` (for DirectX 10/11/12). When the game loads it,
+before edloader starts, ReShade hooks the system d3d11's `D3D11CreateDevice`, so its own wrapper sits under the mods
+of the list. edloader knows ReShade by what it exports (`ReShadeRegisterAddon`): it does not stop for it and needs
+nothing set; the log says so once (`ReShade is loaded (dxgi.dll), a known taker: accepted`). Tested with ReShade
+6.8.0 in front of edworld and EDHM: ReShade's banner, EDHM's colours and edworld's drawing all there; not tested with
+EDVR.
+
+Under Linux (Proton) the test ran with `WINEDLLOVERRIDES="dxgi=n,b" %command%` in the game's launch options, so that
+the game loads ReShade's `dxgi.dll` from its folder; whether it is needed without was not tested.
+
+edloader 1.1.0 and older does not know ReShade: it stops (`TAKEOVER: before edloader started: the system d3d11's
+D3D11CreateDevice differs from its file`) and no mod of the list is called. With such an edloader add
+`accept_takeover = true` to `edloader.txt`.
+
 ## Check that it works
 
 Open `edloader\logs\edloader.log` after starting the game. It lists the mods it loaded (`chain[0] = ...`) and

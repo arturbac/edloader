@@ -16,7 +16,7 @@ need EDWORLD_WINEPREFIX "a wine prefix kept between runs"
 EDW=$EDWORLD_DIR
 EDWB=$EDWORLD_BUILD
 for f in "$BUILD/d3d11.dll" "$BUILD/test/fake_a.dll" "$BUILD/test/fake_b.dll" "$BUILD/test/fake_intruder.dll" \
-         "$BUILD/test/fake_hooker.dll" "$EDWB/test/edworld/test_app.exe" "$EDWB/edworld/edworld.dll" \
+         "$BUILD/test/fake_hooker.dll" "$BUILD/test/fake_reshade.dll" "$EDWB/test/edworld/test_app.exe" "$EDWB/edworld/edworld.dll" \
          "$EDWB/test/test_foreign.dll"; do
   [[ -f $f ]] || { echo "$0: no $f (build first)" >&2; exit 1; }
 done
@@ -109,4 +109,19 @@ echo "--- edloader.log, hooker"; cat "$ROOT/logs/edloader.log"
 grep -q "fake_hooker.dll hooked edloader's own D3D11CreateDevice inline; put back" "$ROOT/logs/edloader.log" \
   || fail "a hook on edloader's own export put back"
 [[ $(tr '\n' ' ' < order.txt) == "fake_a fake_b "* ]] || fail "order with a hooker '$(tr '\n' ' ' < order.txt)'"
+# ReShade, known by its export: it hooks the system d3d11 inline through a stub of no module; accepted without
+# accept_takeover, said once, and the list still called, the calls reaching the system copy through ReShade's hook
+cp "$BUILD/test/fake_reshade.dll" "$ROOT/plugins/"
+: > order.txt
+: > "$ROOT/logs/edloader.log"
+printf '+fake_reshade.dll\nfake_a.dll\n' > "$ROOT/edloader.txt"
+set +e
+wine test_app.exe > test_app_reshade.out
+set -e
+echo "--- edloader.log, ReShade"; cat "$ROOT/logs/edloader.log"
+grep -q "the system d3d11's D3D11CreateDevice was hooked inline (a jump to ?); ReShade is loaded (fake_reshade.dll), a known taker: accepted" \
+  "$ROOT/logs/edloader.log" || fail "ReShade accepted as a known taker"
+! grep -q "edloader stops" "$ROOT/logs/edloader.log" || fail "edloader stopped at ReShade"
+[[ $(grep -c "a known taker: accepted" "$ROOT/logs/edloader.log") == 1 ]] || fail "ReShade told more than once"
+[[ $(tr '\n' ' ' < order.txt) == "fake_a reshade "* ]] || fail "order with ReShade '$(tr '\n' ' ' < order.txt)'"
 echo "chain test PASSED"

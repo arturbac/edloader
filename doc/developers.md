@@ -41,6 +41,9 @@ by an inline hook on the system copy's function. edloader cannot prevent either,
   checks after its loading) gets "remove it, or put it first"; anything else (a hook before edloader started, a
   jump into memory of no module, a dll from outside the list) gets `accept_takeover = true` alone. While stopped the
   device line says `through 0 element(s)` and `did not call on` is not reported: no element was called.
+- ReShade is a known taker by its export `ReShadeRegisterAddon` (`reshade_loaded` in `src/edloader.cc`): its hook
+  on the system copy leads into memory of no module, so a takeover with no module told (`?`) is accepted while a
+  dll with that export is loaded. `test/fake_reshade.cc` stands in for it.
 - A few dlls are known takers (`known_takers` in `src/edloader.cc`; Epic's overlay `EOSOVH-Win64-Shipping.dll`):
   their takeover is accepted without the setting, told once, and the loader's imports leading to them are left as
   they are and counted in one line per sweep when the count changes, instead of a line each.
