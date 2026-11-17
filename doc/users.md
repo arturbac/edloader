@@ -88,6 +88,12 @@ accept_takeover = true
 
 to `edloader.txt`: edloader logs the takeover and still passes the calls on down the list, at your own risk.
 
+The hook may also come from outside the list: something loaded before edloader started or beside it (another wrapper
+in the game's folder, an overlay, a security program). edloader starts at the game's first device, not when the game
+starts, so such a hook is often there already; the log says `before edloader started:` or names no mod of the list,
+and there is nothing to remove from the list. Add `accept_takeover = true` to `edloader.txt` then. While edloader is
+stopped, its device lines say `through 0 element(s) (edloader stopped by a TAKEOVER: the list skipped)`.
+
 ## The Epic Games Store: Epic's overlay
 
 The game from the Epic Games Store loads Epic's overlay, `EOSOVH-Win64-Shipping.dll`. A second or two after the

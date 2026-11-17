@@ -183,6 +183,19 @@ namespace
   bool accept_takeover{};
   bool stopped{};
 
+  ///\brief the file names (no path, as module_of gives them) of the dlls edloader loaded from the list, chained or
+  /// not, each added before the checks that follow its loading
+  std::vector<std::wstring> list_files;
+
+  ///\brief a takeover by a dll of the list, not by something loaded outside it (an antivirus, an overlay, a wrapper)
+  auto listed(std::wstring const & file) noexcept -> bool
+    {
+    for(std::wstring const & f: list_files)
+      if(_wcsicmp(f.c_str(), file.c_str()) == 0)
+        return true;
+    return false;
+    }
+
   ///\brief what made edloader stop, said once; by: the dll that took the calls, when known
   auto take_over(std::string const & what, std::wstring const & by = {}) noexcept -> void
     {
@@ -202,9 +215,15 @@ namespace
     if(not stopped)
       {
       stopped = true;
-      log_line("TAKEOVER: %s. edloader stops: every call goes to the system d3d11.dll and no dll of the list is called. "
-               "Remove that dll from the list, or put it first in the list and add the line 'accept_takeover = true' to "
-               "edloader.txt: then edloader still passes the calls on, at your own risk", what.c_str());
+      if(listed(by))
+        log_line("TAKEOVER: %s. edloader stops: every call goes to the system d3d11.dll and no dll of the list is called. "
+                 "Remove that dll from the list, or put it first in the list and add the line 'accept_takeover = true' to "
+                 "edloader.txt: then edloader still passes the calls on, at your own risk", what.c_str());
+      else
+        log_line("TAKEOVER: %s. edloader stops: every call goes to the system d3d11.dll and no dll of the list is called. "
+                 "The hook is not from a dll of the list but from something loaded outside it (another wrapper in the "
+                 "game's folder, an overlay, a security program). Add the line 'accept_takeover = true' to "
+                 "edloader.txt: then edloader still passes the calls on, at your own risk", what.c_str());
       }
     else
       log_line("TAKEOVER: %s", what.c_str());
@@ -779,6 +798,7 @@ namespace
         log_line("%S: cannot load (error %lu); skipped", path.c_str(), GetLastError());
         continue;
         }
+      list_files.push_back(module_of(reinterpret_cast<void const *>(module)));
       {
       std::string const label{"after loading " + std::string{text}};
       guard_own_exports(label.c_str(), std::string{text}.c_str());
@@ -914,7 +934,7 @@ namespace
   auto report_shortcuts() noexcept -> void
     {
     static bool reported{};
-    if(reported)
+    if(reported or stopped)  // stopped: no element was called, so none ended the chain
       return;
     reported = true;
     for(std::size_t i{}; i + 1 < chain.size() and i < 32; ++i)
@@ -956,8 +976,9 @@ extern "C" HRESULT WINAPI edvr_impl_D3D11CreateDevice(
   HRESULT const hr{target.create(adapter, driver_type, software, flags, levels, level_count, sdk, device, level, context)};
   if(depth == 1)
     {
-    log_line("D3D11CreateDevice: hr 0x%08lX through %zu element(s), device %s; called from %S, passed to %S",
-             static_cast<unsigned long>(hr), chain.size(),
+    log_line("D3D11CreateDevice: hr 0x%08lX through %zu element(s)%s, device %s; called from %S, passed to %S",
+             static_cast<unsigned long>(hr), stopped ? std::size_t{} : chain.size(),
+             stopped ? " (edloader stopped by a TAKEOVER: the list skipped)" : "",
              device == nullptr ? "not asked" : SUCCEEDED(hr) and *device ? "made" : "asked, none made",
              module_of(_ReturnAddress()).c_str(), target.name.c_str());
     report_shortcuts();
