@@ -51,7 +51,9 @@ by an inline hook on the system copy's function. edloader cannot prevent either,
   device line says `through 0 element(s)` and `did not call on` is not reported: no element was called.
 - ReShade is a known taker by its export `ReShadeRegisterAddon` (`reshade_loaded` in `src/edloader.cc`): its hook
   on the system copy leads into memory of no module, so a takeover with no module told (`?`), or one leading into the
-  dll with that export, is accepted while that dll is loaded. `test/fake_reshade.cc` stands in for it.
+  dll with that export, is accepted while that dll is loaded, when ReShade is loaded beside the list (as `dxgi.dll` in
+  the game's folder): a dll of edloader's own list that hooks the system copy stops edloader as any other, ReShade
+  too. `test/fake_reshade.cc` stands in for it.
 - A few dlls are known takers (`known_takers` in `src/edloader.cc`; Epic's overlay `EOSOVH-Win64-Shipping.dll`):
   their takeover is accepted without the setting, told once, and the loader's imports leading to them are left as
   they are and counted in one line per sweep when the count changes, instead of a line each.

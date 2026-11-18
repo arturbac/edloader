@@ -92,7 +92,26 @@ namespace
     ReleaseSRWLockExclusive(&log_lock);
     }
 
+  auto loader_paths() -> void;
+
+  // in DllMain, where nothing may be thrown out (out of memory for a path): what is not made stays empty, the exports
+  // unresolved, and edloader passes nothing on (2026-11-18, the second audit)
   auto loader_phase() noexcept -> void
+    {
+    try
+      {
+      loader_paths();
+      }
+    catch(...)
+      {
+      system_module = nullptr;
+      }
+    for(std::size_t i{}; i != export_count; ++i)
+      if(not edvr_realProcs_d3d11[i])
+        edvr_realProcs_d3d11[i] = reinterpret_cast<void *>(&edvr_unresolved_d3d11);
+    }
+
+  auto loader_paths() -> void
     {
     wchar_t path[MAX_PATH]{};
     GetModuleFileNameW(self_module, path, MAX_PATH);
@@ -219,7 +238,7 @@ namespace
   bool reshade_told{};
 
   ///\brief what made edloader stop, said once; by: the dll that took the calls, when known
-  auto take_over(std::string const & what, std::wstring const & by = {}) noexcept -> void
+  auto take_over(std::string const & what, std::wstring const & by = {}) -> void
     {
     if(known_taker_t * const k{known_taker(by)})
       {
