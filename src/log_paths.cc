@@ -6,9 +6,14 @@
 #include <cstdio>
 #include <string>
 #include <vector>
+#include <string_view>
+
+#include <stralgo/stralgo.h>
 
 namespace edloader
   {
+  using namespace std::string_view_literals;
+
   HMODULE self_module{};
   HMODULE system_module{};
   std::wstring module_dir;
@@ -54,9 +59,9 @@ namespace edloader
   auto make_dirs(std::wstring const & root) -> void
     {
     CreateDirectoryW(root.c_str(), nullptr);
-    CreateDirectoryW((root + L"\\config").c_str(), nullptr);
-    CreateDirectoryW((root + L"\\logs").c_str(), nullptr);
-    CreateDirectoryW((root + L"\\plugins").c_str(), nullptr);
+    CreateDirectoryW(stralgo::stl::merge(root, L"\\config"sv).c_str(), nullptr);
+    CreateDirectoryW(stralgo::stl::merge(root, L"\\logs"sv).c_str(), nullptr);
+    CreateDirectoryW(stralgo::stl::merge(root, L"\\plugins"sv).c_str(), nullptr);
     }
 
   ///\brief the one place: %USERPROFILE%\edloader, inside the wine prefix, which a verification of the game's files
@@ -66,12 +71,12 @@ namespace edloader
   auto find_root_dir() -> std::wstring
     {
     std::wstring const profile{environment(L"USERPROFILE")};
-    std::wstring const standard{profile.empty() ? module_dir : profile + L"\\edloader"};
+    std::wstring const standard{profile.empty() ? module_dir : stralgo::stl::merge(profile, L"\\edloader"sv)};
     std::wstring const lab{environment(L"EDLOADER_DIR")};
     if(lab.empty())
       return standard;
     make_dirs(standard);
-    if(std::FILE * f{_wfopen((standard + L"\\logs\\edloader.log").c_str(), L"ab")})
+    if(std::FILE * f{_wfopen(stralgo::stl::merge(standard, L"\\logs\\edloader.log"sv).c_str(), L"ab")})
       {
       SYSTEMTIME t;
       GetSystemTime(&t);
