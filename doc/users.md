@@ -68,11 +68,23 @@ affected.
 
 ## EDHM-UI
 
-EDHM-UI works in the game's folder. Its Install puts EDHM there as `d3d11.dll`, over edloader's, and its themes go to
-`EDHM-ini` and `ShaderFixes` there. After a new theme copy those two folders into `edloader\plugins` again. After an
-Install also move EDHM's `d3d11.dll` to `edloader\plugins\d3d11_edhm.dll` and copy edloader's `d3d11.dll` back. Under
-Linux the two folders in the game's folder are links into EDHM-UI's own folder: the same links in `edloader\plugins`
-make the copying of themes needless.
+EDHM-UI works in the game's folder: its Install puts EDHM there again, over edloader's `d3d11.dll`. After each
+Install:
+
+1. Move EDHM's `d3d11.dll` from the game's folder to `edloader\plugins` and name it `d3d11_edhm.dll`.
+2. Move EDHM's compiler, `d3dcompiler_47.dll`, from the game's folder to `edloader\plugins` (without it EDHM does not
+   start).
+3. Move EDHM's `d3dx.ini` from the game's folder to `edloader\plugins`.
+4. Copy edloader's `d3d11.dll` back into the game's folder.
+5. `edloader.txt` has EDHM's two lines (once is enough):
+
+   ```
+   +d3dcompiler_47.dll
+   d3d11_edhm.dll
+   ```
+
+After a new theme copy `EDHM-ini` and `ShaderFixes` from the game's folder into `edloader\plugins` again. Under Linux
+those two folders are links into EDHM-UI's own folder: the same links in `edloader\plugins` make the copying needless.
 
 ## A mod that takes the game's calls itself
 
