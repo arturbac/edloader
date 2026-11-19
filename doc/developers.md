@@ -49,12 +49,12 @@ by an inline hook on the system copy's function. edloader cannot prevent either,
   checks after its loading) gets "remove it, or put it first"; anything else (a hook before edloader started, a
   jump into memory of no module, a dll from outside the list) gets `accept_takeover = true` alone. While stopped the
   device line says `through 0 element(s)` and `did not call on` is not reported: no element was called.
-- ReShade is a known taker by its export `ReShadeRegisterAddon` (`reshade_loaded` in `src/edloader.cc`): its hook
+- ReShade is a known taker by its export `ReShadeRegisterAddon` (`reshade_loaded` in `src/takeovers.cc`): its hook
   on the system copy leads into memory of no module, so a takeover with no module told (`?`), or one leading into the
   dll with that export, is accepted while that dll is loaded, when ReShade is loaded beside the list (as `dxgi.dll` in
   the game's folder): a dll of edloader's own list that hooks the system copy stops edloader as any other, ReShade
   too. `test/fake_reshade.cc` stands in for it.
-- A few dlls are known takers (`known_takers` in `src/edloader.cc`; Epic's overlay `EOSOVH-Win64-Shipping.dll`):
+- A few dlls are known takers (`known_takers` in `src/takeovers.cc`; Epic's overlay `EOSOVH-Win64-Shipping.dll`):
   their takeover is accepted without the setting, told once, and the loader's imports leading to them are left as
   they are and counted in one line per sweep when the count changes, instead of a line each.
 
@@ -104,7 +104,11 @@ lands in its one place. Environment: `EDWORLD_DIR` (an edworld checkout), `EDWOR
 
 | Path | What |
 |---|---|
-| `src/edloader.cc` | the loader |
+| `src/runtime.h`, `src/log_paths.cc` | what the parts share (the chain's elements, the paths, the log); the log, the folders, edloader's one place (root_dir) |
+| `src/chain.cc`, `src/chain.h` | the system copy in DllMain, the list (edloader.txt) loaded on the first export call, edloader's own steps guarded |
+| `src/takeovers.cc`, `src/takeovers.h` | who else takes the game's calls: the game's imports, the loader's functions, edloader's own exports, known takers |
+| `src/pe_read.cc`, `src/pe_read.h` | reading modules: names, a jump at a function's start, a function's bytes on disk |
+| `src/proxy.cc` | the exported D3D11CreateDevice and ...AndSwapChain (the call passed on to the next element), DllMain |
 | `CMakeLists.txt`, `test/CMakeLists.txt`, `CMakePresets.json` | the build |
 | `cmake/clang-cl-msvc-sdk.cmake`, `cmake/version.cmake` | the toolchain (clang-cl with MSVC's and the Windows SDK's headers and libraries), the version from `git describe` |
 | `tools/d3d11_exports.txt`, `tools/gen_exports_from_list.py` | the Windows d3d11 export names, and the run of EDVR's generator on them |
