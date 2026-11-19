@@ -13,8 +13,14 @@ extern "C"
   }
 
 
+#include <string_view>
+
+#include <stralgo/stralgo.h>
+
 namespace edloader
   {
+  using namespace std::string_view_literals;
+
   char const * const export_names[]{
 #include "edvr_exports_d3d11.inc"
   };
@@ -87,7 +93,7 @@ namespace edloader
     {
     std::wstring path{name};
     if(path.find(L':') == std::wstring::npos and path.find(L'\\') == std::wstring::npos)
-      path = root_dir + L"\\plugins\\" + path;
+      path = stralgo::stl::merge(root_dir, L"\\plugins\\"sv, path);
     return path;
     }
 
@@ -151,7 +157,7 @@ namespace edloader
         }
       list_files.push_back(module_of(reinterpret_cast<void const *>(module)));
       {
-      std::string const label{"after loading " + std::string{text}};
+      std::string const label{stralgo::stl::merge("after loading "sv, text)};
       guard_own_exports(label.c_str(), std::string{text}.c_str());
       check_takers(label.c_str());
       check_loader(label.c_str());

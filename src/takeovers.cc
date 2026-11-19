@@ -10,8 +10,14 @@
 #include <string>
 #include <vector>
 
+#include <string_view>
+
+#include <stralgo/stralgo.h>
+
 namespace edloader
   {
+  using namespace std::string_view_literals;
+
   // ---- who else takes the game's calls: the game's imports of d3d11 and the system copy's first bytes ----
   // A dll can take the game's d3d11 calls past the list: by rewriting the game's import of them (the exe's import
   // address table) or by overwriting the first bytes of the system copy's functions (an inline hook), typically from
@@ -222,7 +228,8 @@ namespace edloader
           {
           log_line("%s: the game's import of %s now leads to %S (%p)", when, w.name, module_of(now).c_str(), now);
           if(module_of(now) != module_of(w.last))
-            take_over(std::string{when} + ": " + narrow(module_of(now)) + " took the game's import of " + w.name, module_of(now));
+            take_over(stralgo::stl::merge(std::string_view{when}, ": "sv, narrow(module_of(now)), " took the game's import of "sv, std::string_view{w.name}),
+                      module_of(now));
           w.last = now;
           }
         }
@@ -235,8 +242,8 @@ namespace edloader
           void const * const to{jump_target(now, w.system)};
           log_line("%s: the system d3d11's %s starts differently now%s%S", when, w.name, to ? ", a jump to " : " (no jump read)",
                    to ? module_of(to).c_str() : L"");
-          take_over(std::string{when} + ": the system d3d11's " + w.name + " was hooked inline" +
-                      (to ? " (a jump to " + narrow(module_of(to)) + ")" : std::string{}),
+          take_over(stralgo::stl::merge(std::string_view{when}, ": the system d3d11's "sv, std::string_view{w.name}, " was hooked inline"sv,
+                                        to ? stralgo::stl::merge(" (a jump to "sv, narrow(module_of(to)), ')') : std::string{}),
                     to ? module_of(to) : std::wstring{});
           std::memcpy(w.prologue, now, sizeof now);
           }
@@ -414,7 +421,8 @@ namespace edloader
               ++known_now[k - known_takers];
               break;  // a known taker's: left as it is, told in short below
               }
-            std::string const what{std::string{when} + ": " + narrow(m.szModule) + "'s import of " + fn + " leads to " + narrow(to)};
+            std::string const what{stralgo::stl::merge(std::string_view{when}, ": "sv, narrow(m.szModule), "'s import of "sv, std::string_view{fn},
+                                                       " leads to "sv, narrow(to))};
             if(accept_takeover)
               {
               log_line("TAKEOVER: %s; accepted, left as it is", what.c_str());
@@ -511,8 +519,8 @@ namespace edloader
         else if(std::memcmp(disk, w.prologue, sizeof disk) != 0)
           {
           void const * const to{jump_target(w.prologue, w.system)};
-          take_over(std::string{"before edloader started: the system d3d11's "} + w.name + " differs from its file" +
-                      (to ? " (a jump to " + narrow(module_of(to)) + ")" : std::string{}),
+          take_over(stralgo::stl::merge("before edloader started: the system d3d11's "sv, std::string_view{w.name}, " differs from its file"sv,
+                                        to ? stralgo::stl::merge(" (a jump to "sv, narrow(module_of(to)), ')') : std::string{}),
                     to ? module_of(to) : std::wstring{});
           }
         else

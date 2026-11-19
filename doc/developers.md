@@ -87,6 +87,9 @@ MSVC_ROOT=<dir> cmake --preset edloader-release
 cmake --build build/edloader-release
 ```
 
+stralgo (strings put together with its `merge`) and small_vectors come by CPM (`cmake/get_cpm.cmake`) from GitHub;
+with `-DCPM_SOURCE_CACHE=<a filled cache> -DFETCHCONTENT_FULLY_DISCONNECTED=ON` the configure needs no network.
+
 The dll is `<build dir>/d3d11.dll`. The export thunks come from the Windows d3d11 export names in
 `tools/d3d11_exports.txt`, turned into thunks by EDVR's generator (`tools/gen_exports.py`, MIT, unchanged).
 Presets: `edloader-debug` and `edloader-release` build in `build/<preset>`; `kdev-edloader-debug` and
@@ -109,7 +112,7 @@ lands in its one place. Environment: `EDWORLD_DIR` (an edworld checkout), `EDWOR
 | `src/takeovers.cc`, `src/takeovers.h` | who else takes the game's calls: the game's imports, the loader's functions, edloader's own exports, known takers |
 | `src/pe_read.cc`, `src/pe_read.h` | reading modules: names, a jump at a function's start, a function's bytes on disk |
 | `src/proxy.cc` | the exported D3D11CreateDevice and ...AndSwapChain (the call passed on to the next element), DllMain |
-| `CMakeLists.txt`, `test/CMakeLists.txt`, `CMakePresets.json` | the build |
+| `CMakeLists.txt`, `test/CMakeLists.txt`, `CMakePresets.json`, `cmake/get_cpm.cmake` | the build (CPM: stralgo, small_vectors) |
 | `cmake/clang-cl-msvc-sdk.cmake`, `cmake/version.cmake` | the toolchain (clang-cl with MSVC's and the Windows SDK's headers and libraries), the version from `git describe` |
 | `tools/d3d11_exports.txt`, `tools/gen_exports_from_list.py` | the Windows d3d11 export names, and the run of EDVR's generator on them |
 | `tools/gen_exports.py`, `tools/EDVR-LICENSE.txt` | EDVR's export thunk generator (MIT) |
