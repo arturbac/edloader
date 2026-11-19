@@ -104,7 +104,7 @@ namespace edloader
     std::FILE * f{_wfopen(list_path.c_str(), L"rb")};
     if(not f)
       {
-      log_line("no %S: everything goes to the system d3d11.dll", list_path.c_str());
+      log_line("no {}: everything goes to the system d3d11.dll", wide(list_path));
       return;
       }
     wchar_t self[MAX_PATH]{};
@@ -123,10 +123,10 @@ namespace edloader
       if(key == "accept_takeover")
         {
         accept_takeover = value == "true" or value == "1" or value == "yes";
-        log_line("accept_takeover = %s", accept_takeover ? "true: a takeover is logged and the list still passed on" : "false");
+        log_line("accept_takeover = {}", accept_takeover ? "true: a takeover is logged and the list still passed on" : "false");
         }
       else
-        log_line("unknown setting '%.*s' ignored", static_cast<int>(key.size()), key.data());
+        log_line("unknown setting '{}' ignored", key);
       }
     std::rewind(f);
     while(std::fgets(line, sizeof line, f))
@@ -146,13 +146,13 @@ namespace edloader
       wchar_t want[MAX_PATH]{};
       if(GetFullPathNameW(path.c_str(), MAX_PATH, want, nullptr) and _wcsicmp(self, want) == 0)
         {
-        log_line("%S is edloader itself; skipped", name.c_str());
+        log_line("{} is edloader itself; skipped", wide(name));
         continue;
         }
       HMODULE const module{LoadLibraryW(path.c_str())};
       if(not module)
         {
-        log_line("%S: cannot load (error %lu); skipped", path.c_str(), GetLastError());
+        log_line("{}: cannot load (error {}); skipped", wide(path), GetLastError());
         continue;
         }
       list_files.push_back(module_of(reinterpret_cast<void const *>(module)));
@@ -164,21 +164,21 @@ namespace edloader
       }
       if(plain)
         {
-        log_line("%S: loaded (plugin, not chained)", name.c_str());
+        log_line("{}: loaded (plugin, not chained)", wide(name));
         continue;
         }
       element_t e{name, module, reinterpret_cast<create_device_fn>(GetProcAddress(module, "D3D11CreateDevice")),
                   reinterpret_cast<create_device_swap_fn>(GetProcAddress(module, "D3D11CreateDeviceAndSwapChain"))};
       if(not e.create)
         {
-        log_line("%S: exports no D3D11CreateDevice, so not a d3d11 proxy; kept loaded, not chained", name.c_str());
+        log_line("{}: exports no D3D11CreateDevice, so not a d3d11 proxy; kept loaded, not chained", wide(name));
         continue;
         }
-      log_line("chain[%zu] = %S%s", chain.size(), name.c_str(), e.create_swap ? "" : " (no D3D11CreateDeviceAndSwapChain)");
+      log_line("chain[{}] = {}{}", chain.size(), wide(name), e.create_swap ? "" : " (no D3D11CreateDeviceAndSwapChain)");
       chain.push_back(e);
       }
     std::fclose(f);
-    log_line("chain: game -> %zu proxy(ies) -> system d3d11.dll", chain.size());
+    log_line("chain: game -> {} proxy(ies) -> system d3d11.dll", chain.size());
     }
 
 
@@ -196,7 +196,7 @@ namespace edloader
       }
     __except(code = GetExceptionCode(), EXCEPTION_EXECUTE_HANDLER)
       {
-      log_line("%s: failed (exception 0x%08lX%s); skipped", what, code, code == 0xE06D7363u ? ", a C++ exception" : "");
+      log_line("{}: failed (exception 0x{:08X}{}); skipped", what, as_unsigned(code), code == 0xE06D7363u ? ", a C++ exception" : "");
       return false;
       }
     }
@@ -206,12 +206,11 @@ namespace edloader
 
   auto device_checks(char const * when) noexcept -> void
     {
-    AcquireSRWLockExclusive(&checks_lock);
+    exclusive_lock_t const hold{checks_lock};
     guarded("own exports", [](char const * w) { guard_own_exports(w, "a dll"); }, when);
     guarded("takers", [](char const * w) { check_takers(w); }, when);
     guarded("loader", [](char const * w) { check_loader(w); }, when);
     guarded("loader imports", [](char const * w) { sweep_loader_imports(w); }, when);
-    ReleaseSRWLockExclusive(&checks_lock);
     }
 
   auto init_steps(char const *) -> void
@@ -219,8 +218,8 @@ namespace edloader
     root_dir = find_root_dir();
     make_dirs(root_dir);
     log_file = _wfopen(stralgo::stl::merge(root_dir, L"\\logs\\edloader.log"sv).c_str(), L"ab");
-    log_line("edloader %s", EDLOADER_VERSION);
-    log_line("root: %S", root_dir.c_str());
+    log_line("edloader {}", EDLOADER_VERSION);
+    log_line("root: {}", wide(root_dir));
     // the plugins' own files: plugins made for edloader read these, without edloader they fall back to beside their dll
     SetEnvironmentVariableW(L"EDLOADER_CONFIG_DIR", stralgo::stl::merge(root_dir, L"\\config"sv).c_str());
     SetEnvironmentVariableW(L"EDLOADER_LOG_DIR", stralgo::stl::merge(root_dir, L"\\logs"sv).c_str());

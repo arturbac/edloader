@@ -57,7 +57,7 @@ namespace edloader
     if(not reported)
       {
       reported = true;
-      log_line("%s: nested call from a module not in the list (%p); routed to the system copy", what, caller);
+      log_line("{}: nested call from a module not in the list ({}); routed to the system copy", what, static_cast<void const *>(caller));
       }
     return system_element;
     }
@@ -73,10 +73,9 @@ namespace edloader
     for(std::size_t i{}; i + 1 < chain.size() and i < 32; ++i)
       if(not(entered & (1u << i)))
         log_line(
-          "chain[%zu] %S did not call on: the elements after it were skipped (point its own 'original d3d11' "
+          "chain[{}] {} did not call on: the elements after it were skipped (point its own 'original d3d11' "
           "setting at d3d11.dll)",
-          i, chain[i].name.c_str()
-        );
+          i, wide(chain[i].name));
     }
   }  // namespace edloader
 
@@ -108,11 +107,11 @@ extern "C" HRESULT WINAPI edvr_impl_D3D11CreateDevice(
   HRESULT const hr{target.create(adapter, driver_type, software, flags, levels, level_count, sdk, device, level, context)};
   if(depth == 1)
     {
-    log_line("D3D11CreateDevice: hr 0x%08lX through %zu element(s)%s, device %s; called from %S, passed to %S",
+    log_line("D3D11CreateDevice: hr 0x{:08X} through {} element(s){}, device {}; called from {}, passed to {}",
              static_cast<unsigned long>(hr), stopped ? std::size_t{} : chain.size(),
              stopped ? " (edloader stopped by a TAKEOVER: the list skipped)" : "",
              device == nullptr ? "not asked" : SUCCEEDED(hr) and *device ? "made" : "asked, none made",
-             module_of(_ReturnAddress()).c_str(), target.name.c_str());
+             wide(module_of(_ReturnAddress())), wide(target.name));
     report_shortcuts();
     }
   return hr;
@@ -154,8 +153,8 @@ extern "C" HRESULT WINAPI edvr_impl_D3D11CreateDeviceAndSwapChain(
   )};
   if(depth == 1)
     {
-    log_line("D3D11CreateDeviceAndSwapChain: hr 0x%08lX, first to %S", static_cast<unsigned long>(hr),
-             target == &system_element ? L"the system d3d11.dll" : target->name.c_str());
+    log_line("D3D11CreateDeviceAndSwapChain: hr 0x{:08X}, first to {}", static_cast<unsigned long>(hr),
+             wide(target == &system_element ? L"the system d3d11.dll" : target->name));
     report_shortcuts();
     }
   return hr;

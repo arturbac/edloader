@@ -2,7 +2,6 @@
 #include "runtime.h"
 
 #include <algorithm>
-#include <cstdarg>
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -23,29 +22,60 @@ namespace edloader
   std::FILE * log_file{};
   SRWLOCK log_lock = SRWLOCK_INIT;  ///< no std::mutex: its lock may throw, and log_line runs where nothing may
 
-  auto log_line(char const * fmt, ...) noexcept -> void
+  namespace
+    {
+    ///\brief the room a log line is made in, and an output iterator that stops at its end
+    struct cut_buffer_t
+      {
+      char * at;
+      char * end;
+      };
+
+    struct cut_out_t
+      {
+      using difference_type = std::ptrdiff_t;
+      cut_buffer_t * b;
+
+      auto operator*() noexcept -> cut_out_t & { return *this; }
+
+      auto operator=(char c) noexcept -> cut_out_t &
+        {
+        if(b->at != b->end)
+          *b->at++ = c;
+        return *this;
+        }
+
+      auto operator++() noexcept -> cut_out_t & { return *this; }
+
+      auto operator++(int) noexcept -> cut_out_t { return *this; }
+      };
+    }  // namespace
+
+  auto log_vline(std::string_view fmt, std::format_args args) noexcept -> void
     {
     if(not log_file)
       return;
     SYSTEMTIME t;
     GetSystemTime(&t);
     char buf[2048];
-    int n{std::snprintf(
-      buf, sizeof buf, "%04u-%02u-%02uT%02u:%02u:%02u.%03uZ ", t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute,
-      t.wSecond, t.wMilliseconds
-    )};
-    va_list args;
-    va_start(args, fmt);
-    int const room{static_cast<int>(sizeof buf) - n - 1};  // one byte kept for the line's end
-    int const m{std::vsnprintf(buf + n, static_cast<std::size_t>(room), fmt, args)};
-    va_end(args);
-    // a cut line ends where vsnprintf put its terminator, which the line's end replaces: no NUL in the log
-    n += m < 0 ? 0 : std::min(m, room - 1);
-    buf[n++] = '\n';
-    AcquireSRWLockExclusive(&log_lock);
-    std::fwrite(buf, 1, static_cast<std::size_t>(n), log_file);
+    cut_buffer_t room{buf, buf + sizeof buf - 1};  // one byte kept for the line's end
+    try
+      {
+      std::format_to(cut_out_t{&room}, "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z ", t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond,
+                     t.wMilliseconds);
+      std::vformat_to(cut_out_t{&room}, fmt, args);
+      }
+    catch(...)
+      {
+      constexpr std::string_view failed{" (log: the rest of this line could not be formatted)"};
+      for(char const c: failed)
+        if(room.at != room.end)
+          *room.at++ = c;
+      }
+    *room.at++ = '\n';
+    exclusive_lock_t const hold{log_lock};
+    std::fwrite(buf, 1, static_cast<std::size_t>(room.at - buf), log_file);
     std::fflush(log_file);
-    ReleaseSRWLockExclusive(&log_lock);
     }
 
 

@@ -90,6 +90,10 @@ cmake --build build/edloader-release
 stralgo (strings put together with its `merge`) and small_vectors come by CPM (`cmake/get_cpm.cmake`) from GitHub;
 with `-DCPM_SOURCE_CACHE=<a filled cache> -DFETCHCONTENT_FULLY_DISCONNECTED=ON` the configure needs no network.
 
+The log: `log_line` takes a `std::format` format checked against its arguments when compiled and hands it to
+`log_vline` (`std::vformat_to` into 2 KB on the stack, the line cut there, never thrown); a wide string goes in as
+`wide(...)` (UTF-8). SRW locks are held by `exclusive_lock_t` for a scope.
+
 The dll is `<build dir>/d3d11.dll`. The export thunks come from the Windows d3d11 export names in
 `tools/d3d11_exports.txt`, turned into thunks by EDVR's generator (`tools/gen_exports.py`, MIT, unchanged).
 Presets: `edloader-debug` and `edloader-release` build in `build/<preset>`; `kdev-edloader-debug` and

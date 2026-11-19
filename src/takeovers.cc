@@ -98,7 +98,7 @@ namespace edloader
     if(known_taker_t * const k{known_taker(by)})
       {
       if(not k->told)
-        log_line("TAKEOVER: %s; %S is %s, a known taker: accepted, the list is passed on", what.c_str(), k->file, k->what);
+        log_line("TAKEOVER: {}; {} is {}, a known taker: accepted, the list is passed on", what, wide(k->file), k->what);
       k->told = true;
       return;
       }
@@ -108,32 +108,32 @@ namespace edloader
          not reshade.empty() and (by.empty() or by == L"?" or _wcsicmp(by.c_str(), reshade.c_str()) == 0))
         {
         if(not reshade_told)
-          log_line("TAKEOVER: %s; ReShade is loaded (%S), a known taker: accepted, the list is passed on", what.c_str(),
-                   reshade.c_str());
+          log_line("TAKEOVER: {}; ReShade is loaded ({}), a known taker: accepted, the list is passed on", what,
+                   wide(reshade));
         reshade_told = true;
         return;
         }
     takeover = true;
     if(accept_takeover)
       {
-      log_line("TAKEOVER: %s; accepted (accept_takeover = true): the list is passed on, at your own risk", what.c_str());
+      log_line("TAKEOVER: {}; accepted (accept_takeover = true): the list is passed on, at your own risk", what);
       return;
       }
     if(not stopped)
       {
       stopped = true;
       if(listed(by))
-        log_line("TAKEOVER: %s. edloader stops: every call goes to the system d3d11.dll and no dll of the list is called. "
+        log_line("TAKEOVER: {}. edloader stops: every call goes to the system d3d11.dll and no dll of the list is called. "
                  "Remove that dll from the list, or put it first in the list and add the line 'accept_takeover = true' to "
-                 "edloader.txt: then edloader still passes the calls on, at your own risk", what.c_str());
+                 "edloader.txt: then edloader still passes the calls on, at your own risk", what);
       else
-        log_line("TAKEOVER: %s. edloader stops: every call goes to the system d3d11.dll and no dll of the list is called. "
+        log_line("TAKEOVER: {}. edloader stops: every call goes to the system d3d11.dll and no dll of the list is called. "
                  "The hook is not from a dll of the list but from something loaded outside it (another wrapper in the "
                  "game's folder, an overlay, a security program). Add the line 'accept_takeover = true' to "
-                 "edloader.txt: then edloader still passes the calls on, at your own risk", what.c_str());
+                 "edloader.txt: then edloader still passes the calls on, at your own risk", what);
       }
     else
-      log_line("TAKEOVER: %s", what.c_str());
+      log_line("TAKEOVER: {}", what);
     }
 
   watched_import_t watched_imports[2]{{"D3D11CreateDevice", nullptr, nullptr, {}, nullptr},
@@ -189,8 +189,8 @@ namespace edloader
       if(std::memcmp(now, w.prologue, sizeof now) != 0)
         {
         void const * const to{jump_target(now, w.function)};
-        log_line("%s: kernelbase's %s starts differently now%s%S", when, w.name, to ? ", a jump to " : " (no jump read)",
-                 to ? module_of(to).c_str() : L"");
+        log_line("{}: kernelbase's {} starts differently now{}{}", when, w.name, to ? ", a jump to " : " (no jump read)",
+                 wide(to ? module_of(to).c_str() : L""));
         // 3Dmigoto hooks LoadLibraryExW for its own load_library_redirect; edloader's chain does not go through the
         // loader after the list is loaded, so this is said, not stopped for
         std::memcpy(w.prologue, now, sizeof now);
@@ -209,8 +209,8 @@ namespace edloader
       wchar_t got[MAX_PATH]{};
       if(by_name)
         GetModuleFileNameW(by_name, got, MAX_PATH);
-      log_line("%s: LoadLibrary(\"d3d11.dll\") from edloader gives %S%s; its D3D11CreateDevice is in %S", when, got,
-               by_name == self_module ? " (edloader)" : "", module_of(create).c_str());
+      log_line("{}: LoadLibrary(\"d3d11.dll\") from edloader gives {}{}; its D3D11CreateDevice is in {}", when, wide(got),
+               by_name == self_module ? " (edloader)" : "", wide(module_of(create)));
       }
     if(by_name)
       FreeLibrary(by_name);
@@ -226,7 +226,7 @@ namespace edloader
         void * const now{*w.slot};
         if(now != w.last)
           {
-          log_line("%s: the game's import of %s now leads to %S (%p)", when, w.name, module_of(now).c_str(), now);
+          log_line("{}: the game's import of {} now leads to {} ({})", when, w.name, wide(module_of(now)), static_cast<void const *>(now));
           if(module_of(now) != module_of(w.last))
             take_over(stralgo::stl::merge(std::string_view{when}, ": "sv, narrow(module_of(now)), " took the game's import of "sv, std::string_view{w.name}),
                       module_of(now));
@@ -240,8 +240,8 @@ namespace edloader
         if(std::memcmp(now, w.prologue, sizeof now) != 0)
           {
           void const * const to{jump_target(now, w.system)};
-          log_line("%s: the system d3d11's %s starts differently now%s%S", when, w.name, to ? ", a jump to " : " (no jump read)",
-                   to ? module_of(to).c_str() : L"");
+          log_line("{}: the system d3d11's {} starts differently now{}{}", when, w.name, to ? ", a jump to " : " (no jump read)",
+                   wide(to ? module_of(to).c_str() : L""));
           take_over(stralgo::stl::merge(std::string_view{when}, ": the system d3d11's "sv, std::string_view{w.name}, " was hooked inline"sv,
                                         to ? stralgo::stl::merge(" (a jump to "sv, narrow(module_of(to)), ')') : std::string{}),
                     to ? module_of(to) : std::wstring{});
@@ -331,7 +331,7 @@ namespace edloader
       std::memcpy(e.bytes, e.at, sizeof e.bytes);
       own_exports.push_back(e);
       }
-    log_line("own exports kept: %zu, their first %zu bytes", own_exports.size(), sizeof(own_export_t::bytes));
+    log_line("own exports kept: {}, their first {} bytes", own_exports.size(), sizeof(own_export_t::bytes));
     }
 
   ///\brief puts back the first bytes of edloader's exports a dll overwrote (3Dmigoto's HookD3D11 from its DllMain), naming
@@ -348,11 +348,11 @@ namespace edloader
         std::memcpy(e.at, e.bytes, sizeof e.bytes);
         VirtualProtect(e.at, sizeof e.bytes, old, &old);
         FlushInstructionCache(GetCurrentProcess(), e.at, sizeof e.bytes);
-        log_line("%s: %s hooked edloader's own %s inline; put back (it stays in the list as any other element)", when, who,
-                 e.name.c_str());
+        log_line("{}: {} hooked edloader's own {} inline; put back (it stays in the list as any other element)", when, who,
+                 e.name);
         }
       else
-        log_line("%s: %s hooked edloader's own %s inline; could not be put back (error %lu)", when, who, e.name.c_str(),
+        log_line("{}: {} hooked edloader's own {} inline; could not be put back (error {})", when, who, e.name,
                  GetLastError());
       }
     }
@@ -425,7 +425,7 @@ namespace edloader
                                                        " leads to "sv, narrow(to))};
             if(accept_takeover)
               {
-              log_line("TAKEOVER: %s; accepted, left as it is", what.c_str());
+              log_line("TAKEOVER: {}; accepted, left as it is", what);
               break;
               }
             DWORD old{};
@@ -433,10 +433,10 @@ namespace edloader
               {
               slots->u1.Function = reinterpret_cast<ULONG_PTR>(real[i]);
               VirtualProtect(&slots->u1.Function, sizeof(void *), old, &old);
-              log_line("TAKEOVER: %s; put back to the real %s", what.c_str(), fn);
+              log_line("TAKEOVER: {}; put back to the real {}", what, fn);
               }
             else
-              log_line("TAKEOVER: %s; could not be put back (error %lu)", what.c_str(), GetLastError());
+              log_line("TAKEOVER: {}; could not be put back (error {})", what, GetLastError());
             break;
             }
           }
@@ -446,8 +446,8 @@ namespace edloader
     for(std::size_t i{}; i != std::size(known_takers); ++i)
       if(known_now[i] != known_takers[i].imports)
         {
-        log_line("TAKEOVER: %s: %u imports of the loader's functions lead to %S, %s, a known taker: left as they are", when,
-                 known_now[i], known_takers[i].file, known_takers[i].what);
+        log_line("TAKEOVER: {}: {} imports of the loader's functions lead to {}, {}, a known taker: left as they are", when,
+                 known_now[i], wide(known_takers[i].file), known_takers[i].what);
         known_takers[i].imports = known_now[i];
         }
     }
@@ -470,7 +470,7 @@ namespace edloader
       all += m.szModule;
       }
     CloseHandle(snap);
-    log_line("modules before the list: %S", all.c_str());
+    log_line("modules before the list: {}", wide(all));
     }
 
   ///\brief the starting point of the checks: where the game's imports lead and the system copy's first bytes,
@@ -493,15 +493,15 @@ namespace edloader
         std::uint8_t disk[16];
         std::wstring why;
         if(not bytes_on_disk(path, w.name, disk, why))
-          log_line("kernelbase's %s cannot be compared with its file (%S)", w.name, why.c_str());
+          log_line("kernelbase's {} cannot be compared with its file ({})", w.name, wide(why));
         else if(std::memcmp(disk, w.prologue, sizeof disk) != 0)
           {
           void const * const to{jump_target(w.prologue, w.function)};
-          log_line("before edloader started: kernelbase's %s differs from its file%s%S (said, not stopped for)", w.name,
-                   to ? " (a jump to " : "", to ? (module_of(to) + L")").c_str() : L"");
+          log_line("before edloader started: kernelbase's {} differs from its file{}{} (said, not stopped for)", w.name,
+                   to ? " (a jump to " : "", wide(to ? (module_of(to) + L")").c_str() : L""));
           }
         else
-          log_line("kernelbase's %s is as its file has it", w.name);
+          log_line("kernelbase's {} is as its file has it", w.name);
         }
       }
     check_loader("at start");
@@ -515,7 +515,7 @@ namespace edloader
         std::uint8_t disk[16];
         std::wstring why;
         if(not bytes_on_disk(system_element.name, w.name, disk, why))
-          log_line("the system d3d11's %s cannot be compared with its file (%S)", w.name, why.c_str());
+          log_line("the system d3d11's {} cannot be compared with its file ({})", w.name, wide(why));
         else if(std::memcmp(disk, w.prologue, sizeof disk) != 0)
           {
           void const * const to{jump_target(w.prologue, w.system)};
@@ -524,15 +524,15 @@ namespace edloader
                     to ? module_of(to) : std::wstring{});
           }
         else
-          log_line("the system d3d11's %s is as its file has it", w.name);
+          log_line("the system d3d11's {} is as its file has it", w.name);
         }
       if(w.slot)
         {
         w.last = *w.slot;
-        log_line("the game imports %s from d3d11.dll; it leads to %S", w.name, module_of(w.last).c_str());
+        log_line("the game imports {} from d3d11.dll; it leads to {}", w.name, wide(module_of(w.last)));
         }
       else
-        log_line("the game does not import %s by name from d3d11.dll", w.name);
+        log_line("the game does not import {} by name from d3d11.dll", w.name);
       }
     }
 
