@@ -139,7 +139,8 @@ the log is `git describe` of the tree, taken at each build. `EDLOADER_TESTS` (on
 
 `tools/test.sh <build dir> <scratch dir>` runs under wine without the game: a stand-in for the game creates a device through
 edloader -> two fake proxies -> edworld -> the system copy, and checks the order of the calls and that every file
-lands in its one place; then the takeovers, the marks (`^`, `!`, `^!`, each mistake of the list, one dll by a link)
+lands in its one place; then the takeovers, the marks (`^`, `!`, `^!`, `^` and `!` on two dlls with one between them
+(called by the marks, loaded by the lines), each mistake of the list, one dll by a link)
 and, through `test/swap_app.cc` and `fake_swap`, `^!` with `D3D11CreateDeviceAndSwapChain` passing over an element
 without it. Environment: `EDWORLD_DIR` (an edworld checkout), `EDWORLD_BUILD` (its build directory, with the test's programs),
 `EDWORLD_WINEPREFIX` (a wine prefix kept between runs).
@@ -158,5 +159,5 @@ without it. Environment: `EDWORLD_DIR` (an edworld checkout), `EDWORLD_BUILD` (i
 | `cmake/clang-cl-msvc-sdk.cmake`, `cmake/version.cmake` | the toolchain (clang-cl with MSVC's and the Windows SDK's headers and libraries), the version from `git describe` |
 | `tools/d3d11_exports.txt`, `tools/gen_exports_from_list.py` | the Windows d3d11 export names, and the run of EDVR's generator on them |
 | `tools/gen_exports.py`, `tools/EDVR-LICENSE.txt` | EDVR's export thunk generator (MIT) |
-| `tools/test.sh`, `test/fake_proxy.cc`, `test/swap_app.cc` | the test under wine (`fake_a`, `fake_b`, `fake_swap` from one source) |
+| `tools/test.sh`, `test/fake_proxy.cc`, `test/swap_app.cc` | the test under wine (`fake_a`, `fake_b`, `fake_c`, `fake_swap` from one source) |
 | `NOTICE` | third-party work, file by file, with the licences |

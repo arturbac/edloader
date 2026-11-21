@@ -15,7 +15,7 @@ need EDWORLD_BUILD "its build directory, built and tested once"
 need EDWORLD_WINEPREFIX "a wine prefix kept between runs"
 EDW=$EDWORLD_DIR
 EDWB=$EDWORLD_BUILD
-for f in "$BUILD/d3d11.dll" "$BUILD/test/fake_a.dll" "$BUILD/test/fake_b.dll" "$BUILD/test/fake_intruder.dll" \
+for f in "$BUILD/d3d11.dll" "$BUILD/test/fake_a.dll" "$BUILD/test/fake_b.dll" "$BUILD/test/fake_c.dll" "$BUILD/test/fake_intruder.dll" \
          "$BUILD/test/fake_swap.dll" "$BUILD/test/swap_app.exe" \
          "$BUILD/test/fake_hooker.dll" "$BUILD/test/fake_reshade.dll" "$BUILD/test/fake_jumper.dll" "$EDWB/test/edworld/test_app.exe" "$EDWB/edworld/edworld.dll" \
          "$EDWB/test/test_foreign.dll"; do
@@ -30,7 +30,7 @@ cp "$BUILD/d3d11.dll" "$EDWB/test/edworld/test_app.exe" "$EDW/test/data/edsm_fac
 # edworld's test_app makes an overlay's device from another folder (edworld from 1.2.0-beta.7)
 mkdir -p "$GAME/overlay"
 cp "$EDWB/test/test_foreign.dll" "$GAME/overlay/"
-cp "$BUILD/test/fake_a.dll" "$BUILD/test/fake_b.dll" "$ROOT/plugins/"
+cp "$BUILD/test/fake_a.dll" "$BUILD/test/fake_b.dll" "$BUILD/test/fake_c.dll" "$ROOT/plugins/"
 cp "$EDWB/edworld/edworld.dll" "$ELSEWHERE/"
 win() { echo "Z:${1//\//\\}"; }
 printf '# test chain\nfake_a.dll\nfake_b.dll   ; by name back to edloader\n%s   ; an absolute path\n' \
@@ -177,6 +177,16 @@ log_has "chain[0] = fake_a.dll (first, ^)" "^! both ends"
 log_has "chain[2] = fake_a.dll (last, !)" "^! both ends"
 log_lacks "did not call on" "^! both ends"
 log_lacks "nested call" "^! both ends"
+# ^ and ! on two dlls, one between: the marks, not the lines, give the order
+marked ends 'fake_c.dll\n!fake_a.dll\n^fake_b.dll\n'
+order_is "fake_b fake_c fake_a fake_b fake_c fake_a " "^ and ! on two dlls"
+log_has "chain[0] = fake_b.dll (first, ^)" "^ and ! on two dlls"
+log_has "chain[1] = fake_c.dll" "^ and ! on two dlls"
+log_has "chain[2] = fake_a.dll (last, !)" "^ and ! on two dlls"
+log_has "through 3 element(s), device made" "^ and ! on two dlls"
+log_lacks "did not call on" "^ and ! on two dlls"
+log_lacks "nested call" "^ and ! on two dlls"
+[[ $(tr '\n' ' ' < loaded.txt) == "fake_c fake_a fake_b " ]] || fail "^ and ! on two dlls: loaded '$(tr '\n' ' ' < loaded.txt)', not by the lines"
 marked alone '^!fake_a.dll\n'
 order_is "fake_a fake_a fake_a fake_a " "^! alone"
 log_has "device made" "^! alone"

@@ -1,4 +1,4 @@
-# The chain test's dlls (tools/test.sh runs them under wine): fake_a and fake_b (one source, a name each), fake_swap
+# The chain test's dlls (tools/test.sh runs them under wine): fake_a, fake_b and fake_c (one source, a name each), fake_swap
 # (the same with D3D11CreateDeviceAndSwapChain too, for swap_app, a game asking for that call),
 # fake_intruder (takes the game's import in its DllMain), fake_hooker (hooks edloader's own export, as 3Dmigoto does),
 # fake_reshade (exports ReShadeRegisterAddon and hooks the system d3d11 inline through a stub of no module, as ReShade does),
@@ -17,7 +17,7 @@ function(edloader_fake name source)
     ARCHIVE_OUTPUT_DIRECTORY "${test_out}/lib")
 endfunction()
 
-foreach(n a b)
+foreach(n a b c)
   edloader_fake(fake_${n} fake_proxy.cc "FAKE_NAME=\"fake_${n}\"")
   target_link_options(fake_${n} PRIVATE /EXPORT:D3D11CreateDevice=fake_D3D11CreateDevice)
 endforeach()
