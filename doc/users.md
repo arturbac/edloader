@@ -33,6 +33,26 @@ page, with an example list, `edloader.txt.example`.
 
    A line with `=` is a setting, not a mod; the only one is `accept_takeover` (below).
 
+   A mark before a name puts that mod at an end of the list, wherever its line stands: `^` first (it sees the game's
+   own calls), `!` last (right before the system d3d11), `^!` both (one dll at both ends). A mod's own documentation
+   says if it needs one; the others keep the order of their lines. Spaces after the mark are fine (`^! some_mod.dll`).
+   One mod can have the first place and one the last: two mods asking for the same place, `+` together with `^` or
+   `!`, other marks (`!^`, `^^`, `++`, `^ !` with a space between), a mark with no name, or one mod on two lines
+   without `+` (even a dll that is not a d3d11 mod) is a mistake in the list. edloader then loads none of the list
+   and passes every call to the system d3d11, so the game runs without mods, and the log names each mistake
+   (`MISCONFIGURATION: ...`). One mod named by two different paths (another drive, a link) is found only when it is
+   loaded the second time: then the mods before that line are loaded, and none is called. A name can no longer start
+   with `^` or `!`.
+
+   ```
+   ^!some_mod.dll        # first and last: its documentation asks for both
+   edworld.dll
+   +d3dcompiler_47.dll
+   d3d11_edhm.dll
+   ```
+
+   edloader before these marks takes `^!some_mod.dll` for a file name, cannot load it and leaves that mod out.
+
    A name alone is taken from `edloader\plugins`; a full path (`D:\mods\x.dll`) is taken as it is. A line starting
    with `+` loads a dll that is not a d3d11 mod (it is loaded, nothing is passed to it).
 6. Each mod still reads its own settings. edworld reads `edworld.ini` from `edloader\config` and writes its log to
@@ -158,7 +178,8 @@ misplaced mod would pass unnoticed too. edworld from 1.2.0-beta.13 needs nothing
 Open `edloader\logs\edloader.log` after starting the game. It lists the mods it loaded (`chain[0] = ...`) and
 `chain: game -> N proxy(ies) -> system d3d11.dll`. A mod it could not load is named with `cannot load`; a dll that
 is not a d3d11 mod with `not a d3d11 proxy`. Without `edloader.txt` the log says `no ...edloader.txt` and the game
-runs without any mod.
+runs without any mod. A mistake in the list's marks is a `MISCONFIGURATION:` line each, then `edloader stops`: fix
+those lines and start the game again.
 
 ## After a verification of the game's files
 

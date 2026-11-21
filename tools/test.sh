@@ -16,6 +16,7 @@ need EDWORLD_WINEPREFIX "a wine prefix kept between runs"
 EDW=$EDWORLD_DIR
 EDWB=$EDWORLD_BUILD
 for f in "$BUILD/d3d11.dll" "$BUILD/test/fake_a.dll" "$BUILD/test/fake_b.dll" "$BUILD/test/fake_intruder.dll" \
+         "$BUILD/test/fake_swap.dll" "$BUILD/test/swap_app.exe" \
          "$BUILD/test/fake_hooker.dll" "$BUILD/test/fake_reshade.dll" "$BUILD/test/fake_jumper.dll" "$EDWB/test/edworld/test_app.exe" "$EDWB/edworld/edworld.dll" \
          "$EDWB/test/test_foreign.dll"; do
   [[ -f $f ]] || { echo "$0: no $f (build first)" >&2; exit 1; }
@@ -139,6 +140,108 @@ grep -q "the system d3d11's D3D11CreateDevice was hooked inline (a jump to fake_
   "$ROOT/logs/edloader.log" || fail "a relative jump read from the function's address"
 ! grep -q "failed (exception" "$ROOT/logs/edloader.log" || fail "a step of edloader failed"
 [[ $(tr '\n' ' ' < order.txt) == "fake_a jumper "* ]] || fail "order with a jumper '$(tr '\n' ' ' < order.txt)'"
+# the marks: ^ first, ! last, ^! one dll at both ends; a mark wherever its line stands
+marked() {  # <label> <list text>: one run of test_app with that list
+  : > order.txt
+  : > loaded.txt
+  : > "$ROOT/logs/edloader.log"
+  printf '%b' "$2" > "$ROOT/edloader.txt"
+  set +e
+  wine test_app.exe > "test_app_$1.out"
+  set -e
+  echo "--- edloader.log, $1"; cat "$ROOT/logs/edloader.log"
+}
+order_is() { [[ $(tr '\n' ' ' < order.txt) == "$1"* ]] || fail "$2: order '$(tr '\n' ' ' < order.txt)'"; }
+log_has() { grep -qF -- "$1" "$ROOT/logs/edloader.log" || fail "$2: no '$1' in edloader.log"; }
+log_lacks() { ! grep -qF -- "$1" "$ROOT/logs/edloader.log" || fail "$2: '$1' in edloader.log"; }
+marked first 'fake_a.dll\n^fake_b.dll\n'
+order_is "fake_b fake_a " "^ first"
+log_has "device made" "^ first"
+log_has "chain[0] = fake_b.dll (first, ^)" "^ first"
+marked last '!fake_a.dll\nfake_b.dll\n'
+order_is "fake_b fake_a " "! last"
+log_has "device made" "! last"
+log_has "chain[1] = fake_a.dll (last, !)" "! last"
+marked both 'fake_b.dll\n^! fake_a.dll   # spaces after the marks\n'
+order_is "fake_a fake_b fake_a fake_a fake_b fake_a " "^! both ends"
+log_has "through 3 element(s), device made" "^! both ends"
+log_has "chain[0] = fake_a.dll (first, ^)" "^! both ends"
+log_has "chain[2] = fake_a.dll (last, !)" "^! both ends"
+log_lacks "did not call on" "^! both ends"
+log_lacks "nested call" "^! both ends"
+marked alone '^!fake_a.dll\n'
+order_is "fake_a fake_a fake_a fake_a " "^! alone"
+log_has "device made" "^! alone"
+# a mark on a dll that gives no element: logged, the rest of the list as it is
+marked no_dll '^no_such.dll\nfake_a.dll\n'
+order_is "fake_a " "a mark on a missing dll"
+log_has "the place it asks for (^) is left to the rest of the list" "a mark on a missing dll"
+log_lacks "MISCONFIGURATION" "a mark on a missing dll"
+# one dll loaded twice by + lines: as before, a line about it
+marked plain_twice '+fake_a.dll\n+fake_a.dll\nfake_b.dll\n'
+order_is "fake_b " "+ twice"
+log_has "lines 1 and 2 load the same dll (fake_a.dll): loaded once, as before" "+ twice"
+log_lacks "MISCONFIGURATION" "+ twice"
+# the list's own errors: edloader stops before loading any dll, every call to the system copy, accept_takeover or not
+misconfigured() {  # <label> <list text> <the error's text>
+  marked "$1" "$2"
+  log_has "$3" "$1"
+  log_has "MISCONFIGURATION: edloader stops" "$1"
+  log_has "chain: game -> 0 proxy(ies)" "$1"
+  log_has "MISCONFIGURATION of edloader.txt: the list skipped" "$1"
+    log_lacks "chain[" "$1"
+  [[ ! -s order.txt ]] || fail "$1: the list called"
+  [[ ! -s loaded.txt ]] || fail "$1: the list loaded ($(tr '\n' ' ' < loaded.txt))"
+  log_has "device made" "$1"
+}
+misconfigured two_first '^fake_a.dll\nfake_b.dll\n^!fake_b.dll\n' \
+  "2 dlls ask for the first place (^), which one dll can have: line 1 fake_a.dll, line 3 fake_b.dll"
+log_has "lines 2 and 3 name the same dll (fake_b.dll)" "two_first: each mistake its line"
+misconfigured two_last '!fake_a.dll\n!fake_b.dll\n' "2 dlls ask for the last place (!)"
+misconfigured plain_marked '+^fake_a.dll\nfake_b.dll\n' "line 1 '+^fake_a.dll': '+' (loaded, not chained) together with"
+misconfigured marked_plain '^+fake_a.dll\n' "'+' (loaded, not chained) together with"
+misconfigured twice 'fake_a.dll\nfake_b.dll\nfake_a.dll\n' "lines 1 and 3 name the same dll (fake_a.dll)"
+misconfigured bad_marks '!^fake_a.dll\n' "line 1 '!^fake_a.dll': marks other than"
+misconfigured apart '^ !fake_a.dll\n' "line 1 '^ !fake_a.dll': marks other than"
+misconfigured plus_plus '++fake_a.dll\n' "line 1 '++fake_a.dll': marks other than"
+misconfigured no_name 'fake_a.dll\n^! # nothing after it\n' "line 2 '^!': a mark with no dll after it"
+misconfigured accepted 'accept_takeover = true\n^fake_a.dll\n^fake_b.dll\n' "ask for the first place"
+log_lacks "TAKEOVER accepted" "accept_takeover with the list's errors"
+# one dll by two paths (here a link to it): found when the second is loaded, the dlls before it loaded, none called
+ln -s "$ROOT/plugins/fake_a.dll" "$ELSEWHERE/link_a.dll"
+marked two_paths "fake_a.dll\n$(win "$ELSEWHERE/link_a.dll" | sed 's/\\/\\\\/g')\n"
+log_has "MISCONFIGURATION: line 2" "one dll by two paths"
+log_has "is a dll already in the chain, by another path" "one dll by two paths"
+log_has "the dlls before line 2 are loaded" "one dll by two paths"
+log_has "chain: game -> 0 proxy(ies)" "one dll by two paths"
+log_has "MISCONFIGURATION of edloader.txt: the list skipped), device made" "one dll by two paths"
+[[ ! -s order.txt ]] || fail "one dll by two paths: the list called"
+[[ $(tr '\n' ' ' < loaded.txt) == "fake_a " ]] || fail "one dll by two paths: loaded '$(tr '\n' ' ' < loaded.txt)'"
+# the same with a takeover accepted before it: accept_takeover does not lift the list's error
+marked two_paths_accepted "accept_takeover = true\n+fake_intruder.dll\nfake_a.dll\n$(win "$ELSEWHERE/link_a.dll" | sed 's/\\/\\\\/g')\n"
+log_has "fake_intruder.dll took the game's import of D3D11CreateDevice" "takeover and the list's error"
+log_has "MISCONFIGURATION: edloader stops" "takeover and the list's error"
+log_lacks "TAKEOVER accepted (accept_takeover" "takeover and the list's error"
+! grep -q fake_a order.txt || fail "takeover and the list's error: the list called"
+# a byte order mark (Notepad) before the first line: the first line still read
+marked bom '\xEF\xBB\xBF^fake_b.dll\nfake_a.dll\n'
+order_is "fake_b fake_a " "a byte order mark"
+log_lacks "cannot load" "a byte order mark"
+# D3D11CreateDeviceAndSwapChain: ^! on a dll with it, one without it passed over and not told as ending the chain
+cp "$BUILD/test/fake_swap.dll" "$ROOT/plugins/"
+cp "$BUILD/test/swap_app.exe" "$GAME/"
+: > order.txt
+: > "$ROOT/logs/edloader.log"
+printf 'fake_a.dll\n^!fake_swap.dll\n' > "$ROOT/edloader.txt"
+set +e
+wine swap_app.exe > swap_app.out
+set -e
+echo "--- edloader.log, swap"; cat swap_app.out "$ROOT/logs/edloader.log"
+[[ $(tr '\n' ' ' < order.txt) == "fake_swap fake_swap " ]] || fail "swap: order '$(tr '\n' ' ' < order.txt)'"
+log_has "D3D11CreateDeviceAndSwapChain: hr 0x00000000" "swap"
+log_has "first to fake_swap.dll" "swap"
+log_lacks "did not call on" "swap"
+log_lacks "nested call" "swap"
 # no NUL in the log (a line cut at its buffer's end)
 ! grep -qaP '\x00' "$ROOT/logs/edloader.log" || fail "a NUL in edloader.log"
 echo "chain test PASSED"

@@ -4,6 +4,7 @@
 #include "pe_read.h"
 #include "takeovers.h"
 
+#include <optional>
 #include <string>
 
 extern "C"
@@ -25,6 +26,8 @@ namespace edloader
 #include "edvr_exports_d3d11.inc"
   };
   constexpr std::size_t export_count{sizeof(export_names) / sizeof(export_names[0])};
+
+  bool misconfigured{};
 
   auto loader_paths() -> void;
 
@@ -98,6 +101,109 @@ namespace edloader
     }
 
 
+  ///\brief one line of the list that names a dll: its marks and where its name leads
+  struct list_line_t
+    {
+    std::size_t number{};
+    std::string text;   // the name as written, without its marks
+    std::wstring path;  // as LoadLibrary gets it
+    std::wstring full;  // GetFullPathName of it: one dll on two lines of the same spelling
+    bool plain{};       // +: loaded, not chained
+    bool first{};       // ^: first in the chain
+    bool last{};        // !: last in the chain, before the system copy
+    bool self{};        // edloader itself
+    };
+
+  ///\brief the line without its comment and the spaces around
+  auto content(std::string_view line) -> std::string_view
+    {
+    std::string_view text{trim(line)};
+    if(auto const hash{text.find_first_of("#;")}; hash != std::string_view::npos)
+      text = trim(text.substr(0, hash));
+    return text;
+    }
+
+  ///\brief the marks before a name (+, ^, !, ^!, written together; spaces after them are let be) into l, the name after
+  /// them; null when they are fine, otherwise what is wrong with them
+  auto read_marks(std::string_view text, list_line_t & l) -> char const *
+    {
+    std::size_t const end{std::min(text.find_first_not_of("+^!"), text.size())};
+    std::string_view const marks{text.substr(0, end)};
+    text = trim(text.substr(end));
+    l.text = text;
+    if(not text.empty() and "+^!"sv.find(text.front()) != std::string_view::npos)
+      return "marks other than ^ (first), ! (last) or ^! (both), written together before the name";
+    if(marks == "+")
+      l.plain = true;
+    else if(marks == "^")
+      l.first = true;
+    else if(marks == "!")
+      l.last = true;
+    else if(marks == "^!")
+      l.first = l.last = true;
+    else if(marks.find('+') != std::string_view::npos and marks.find_first_of("^!") != std::string_view::npos)
+      return "'+' (loaded, not chained) together with '^' or '!' (a place in the chain)";
+    else if(not marks.empty())
+      return "marks other than ^ (first), ! (last) or ^! (both)";
+    if(text.empty() and (l.first or l.last))
+      return "a mark with no dll after it";
+    return nullptr;
+    }
+
+  auto mark_text(list_line_t const & l) -> std::string_view
+    {
+    return l.first and l.last ? "^!"sv : l.first ? "^"sv : l.last ? "!"sv : ""sv;
+    }
+
+  ///\brief the list's own errors, found before any dll of it is loaded: a line each; true when there was one
+  auto misconfigured_list(std::vector<list_line_t> const & lines, std::size_t bad_marks) -> bool
+    {
+    std::size_t errors{bad_marks};
+    for(bool const at_first: {true, false})
+      {
+      std::string who;
+      std::size_t count{};
+      for(list_line_t const & l: lines)
+        if(not l.self and (at_first ? l.first : l.last))
+          who += std::format("{}line {} {}", count++ == 0 ? "" : ", ", l.number, l.text);
+      if(count > 1)
+        {
+        ++errors;
+        log_line("MISCONFIGURATION: {} dlls ask for the {} place ({}), which one dll can have: {}", count,
+                 at_first ? "first" : "last", at_first ? "^" : "!", who);
+        }
+      }
+    for(std::size_t i{}; i != lines.size(); ++i)
+      for(std::size_t j{i + 1}; j != lines.size(); ++j)
+        {
+        list_line_t const & a{lines[i]};
+        list_line_t const & b{lines[j]};
+        if(a.self or b.self or _wcsicmp(a.full.c_str(), b.full.c_str()) != 0)
+          continue;
+        if(a.plain or b.plain)
+          log_line("lines {} and {} load the same dll ({}): loaded once, as before", a.number, b.number, b.text);
+        else
+          {
+          ++errors;
+          log_line("MISCONFIGURATION: lines {} and {} name the same dll ({}): a dll stands in the chain once "
+                   "(^! puts one dll at both ends)", a.number, b.number, b.text);
+          }
+        }
+    return errors != 0;
+    }
+
+  ///\brief edloader stops for its list's own errors: the takeover's stop, which accept_takeover does not lift
+  auto stop_misconfigured(char const * loaded) -> void
+    {
+    misconfigured = true;
+    stopped = true;
+    chain.clear();
+    log_line("MISCONFIGURATION: edloader stops: every call goes to the system d3d11.dll and no dll of the list is {}. "
+             "Fix the lines above in edloader.txt; a mod's own documentation says if it needs ^ (first), ! (last) or "
+             "^! (both)", loaded);
+    log_line("chain: game -> 0 proxy(ies) -> system d3d11.dll");
+    }
+
   auto load_list() -> void
     {
     std::wstring const list_path{stralgo::stl::merge(root_dir, L"\\edloader.txt"sv)};
@@ -107,15 +213,24 @@ namespace edloader
       log_line("no {}: everything goes to the system d3d11.dll", wide(list_path));
       return;
       }
-    wchar_t self[MAX_PATH]{};
-    GetModuleFileNameW(self_module, self, MAX_PATH);
+    std::vector<std::string> text_lines;
     char line[1024];
-    // the settings first, wherever they stand in the list: they decide what a takeover while loading does
+    bool whole{true};  // the last piece ended its line: a line longer than the buffer comes in pieces
     while(std::fgets(line, sizeof line, f))
       {
-      std::string_view text{trim(line)};
-      if(auto const hash{text.find_first_of("#;")}; hash != std::string_view::npos)
-        text = trim(text.substr(0, hash));
+      if(whole)
+        text_lines.emplace_back(line);
+      else
+        text_lines.back() += line;
+      whole = text_lines.back().ends_with('\n');
+      }
+    std::fclose(f);
+    if(not text_lines.empty() and text_lines.front().starts_with("\xEF\xBB\xBF"))
+      text_lines.front().erase(0, 3);  // a byte order mark, as Notepad writes one
+    // the settings first, wherever they stand in the list: they decide what a takeover while loading does
+    for(std::string const & l: text_lines)
+      {
+      std::string_view const text{content(l)};
       auto const eq{text.find('=')};
       if(eq == std::string_view::npos)
         continue;
@@ -128,56 +243,111 @@ namespace edloader
       else
         log_line("unknown setting '{}' ignored", key);
       }
-    std::rewind(f);
-    while(std::fgets(line, sizeof line, f))
+    // the dlls' lines and their marks, all checked before any dll is loaded: a dll runs its own code when loaded
+    wchar_t self[MAX_PATH]{};
+    GetModuleFileNameW(self_module, self, MAX_PATH);
+    std::vector<list_line_t> lines;
+    std::size_t bad_marks{};
+    for(std::size_t n{}; n != text_lines.size(); ++n)
       {
-      std::string_view text{trim(line)};
-      if(auto const hash{text.find_first_of("#;")}; hash != std::string_view::npos)
-        text = trim(text.substr(0, hash));
-      if(text.empty())
-        continue;
-      if(text.find('=') != std::string_view::npos)
+      std::string_view const text{content(text_lines[n])};
+      if(text.empty() or text.find('=') != std::string_view::npos)
         continue;  // a setting, read above
-      bool const plain{text.front() == '+'};
-      if(plain)
-        text = trim(text.substr(1));
-      std::wstring const name{widen(text)};
-      std::wstring const path{full_path(name)};
-      wchar_t want[MAX_PATH]{};
-      if(GetFullPathNameW(path.c_str(), MAX_PATH, want, nullptr) and _wcsicmp(self, want) == 0)
+      list_line_t l{};
+      l.number = n + 1;
+      if(char const * const wrong{read_marks(text, l)})
         {
-        log_line("{} is edloader itself; skipped", wide(name));
+        ++bad_marks;
+        log_line("MISCONFIGURATION: line {} '{}': {}", l.number, text, wrong);
         continue;
         }
-      HMODULE const module{LoadLibraryW(path.c_str())};
+      l.path = full_path(widen(l.text));
+      wchar_t want[MAX_PATH]{};
+      DWORD const got{GetFullPathNameW(l.path.c_str(), MAX_PATH, want, nullptr)};
+      l.full = got != 0 and got < MAX_PATH ? std::wstring{want} : l.path;
+      l.self = _wcsicmp(self, l.full.c_str()) == 0;
+      lines.push_back(std::move(l));
+      }
+    if(misconfigured_list(lines, bad_marks))
+      {
+      stop_misconfigured("loaded or called");
+      return;
+      }
+    std::vector<element_t> middle;
+    std::optional<element_t> first, last;
+    std::vector<HMODULE> chained;
+    for(list_line_t const & l: lines)
+      {
+      std::string_view const mark{mark_text(l)};
+      if(l.self)
+        {
+        log_line("{} is edloader itself; skipped{}", l.text, mark.empty() ? "" : ", its mark not counted");
+        continue;
+        }
+      // a mark whose dll gives no element: that place stays as the rest of the list makes it
+      auto const place_empty{[&](char const * why)
+                             {
+                               if(not mark.empty())
+                                 log_line("line {} {}{}: {}; the place it asks for ({}) is left to the rest of the list",
+                                          l.number, mark, l.text, why, mark);
+                             }};
+      HMODULE const module{LoadLibraryW(l.path.c_str())};
       if(not module)
         {
-        log_line("{}: cannot load (error {}); skipped", wide(path), GetLastError());
+        log_line("{}: cannot load (error {}); skipped", wide(l.path), GetLastError());
+        place_empty("cannot load");
         continue;
+        }
+      if(not l.plain and std::ranges::find(chained, module) != chained.end())
+        {
+        // one dll by two spellings of its path (another drive, a link): the same module twice in the chain
+        log_line("MISCONFIGURATION: line {} {} is a dll already in the chain, by another path", l.number, l.text);
+        stop_misconfigured(stralgo::stl::merge("called (the dlls before line "sv,
+                                               std::to_string(l.number), " are loaded)"sv).c_str());
+        return;
         }
       list_files.push_back(module_of(reinterpret_cast<void const *>(module)));
       {
-      std::string const label{stralgo::stl::merge("after loading "sv, text)};
-      guard_own_exports(label.c_str(), std::string{text}.c_str());
+      std::string const label{stralgo::stl::merge("after loading "sv, std::string_view{l.text})};
+      guard_own_exports(label.c_str(), l.text.c_str());
       check_takers(label.c_str());
       check_loader(label.c_str());
       }
-      if(plain)
+      if(l.plain)
         {
-        log_line("{}: loaded (plugin, not chained)", wide(name));
+        log_line("{}: loaded (plugin, not chained)", l.text);
         continue;
         }
-      element_t e{name, module, reinterpret_cast<create_device_fn>(GetProcAddress(module, "D3D11CreateDevice")),
+      element_t e{widen(l.text), module, reinterpret_cast<create_device_fn>(GetProcAddress(module, "D3D11CreateDevice")),
                   reinterpret_cast<create_device_swap_fn>(GetProcAddress(module, "D3D11CreateDeviceAndSwapChain"))};
       if(not e.create)
         {
-        log_line("{}: exports no D3D11CreateDevice, so not a d3d11 proxy; kept loaded, not chained", wide(name));
+        log_line("{}: exports no D3D11CreateDevice, so not a d3d11 proxy; kept loaded, not chained", l.text);
+        place_empty("not a d3d11 proxy");
         continue;
         }
-      log_line("chain[{}] = {}{}", chain.size(), wide(name), e.create_swap ? "" : " (no D3D11CreateDeviceAndSwapChain)");
-      chain.push_back(e);
+      chained.push_back(module);
+      if(l.first)
+        {
+        first = e;
+        first->place = " (first, ^)";
+        }
+      if(l.last)
+        {
+        last = e;
+        last->place = " (last, !)";
+        }
+      if(not l.first and not l.last)
+        middle.push_back(std::move(e));
       }
-    std::fclose(f);
+    if(first)
+      chain.push_back(*first);
+    chain.insert(chain.end(), middle.begin(), middle.end());
+    if(last)
+      chain.push_back(*last);
+    for(std::size_t i{}; i != chain.size(); ++i)
+      log_line("chain[{}] = {}{}{}", i, wide(chain[i].name), chain[i].place,
+               chain[i].create_swap ? "" : " (no D3D11CreateDeviceAndSwapChain)");
     log_line("chain: game -> {} proxy(ies) -> system d3d11.dll", chain.size());
     }
 
@@ -227,7 +397,7 @@ namespace edloader
     guarded("own exports kept", [](char const *) { keep_own_exports(); }, nullptr);
     guarded("the list", [](char const *) { load_list(); }, nullptr);
     guarded("loader imports", [](char const * w) { sweep_loader_imports(w); }, "after the list");
-    if(takeover and accept_takeover and stopped)
+    if(takeover and accept_takeover and stopped and not misconfigured)
       {
       stopped = false;  // found before the list's accept_takeover was read
       log_line("TAKEOVER accepted (accept_takeover = true): the list is passed on, at your own risk");

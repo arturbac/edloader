@@ -1,6 +1,7 @@
 // edloader - who else takes the game's calls: the game's imports, the loader's functions, edloader's own exports.
 #include "runtime.h"
 #include "takeovers.h"
+#include "chain.h"
 #include "pe_read.h"
 
 #include <tlhelp32.h>
@@ -116,7 +117,8 @@ namespace edloader
     takeover = true;
     if(accept_takeover)
       {
-      log_line("TAKEOVER: {}; accepted (accept_takeover = true): the list is passed on, at your own risk", what);
+      log_line("TAKEOVER: {}; accepted (accept_takeover = true): the list is passed on, at your own risk{}", what,
+               misconfigured ? " (it stays stopped by a MISCONFIGURATION of edloader.txt)" : "");
       return;
       }
     if(not stopped)
@@ -124,7 +126,7 @@ namespace edloader
       stopped = true;
       if(listed(by))
         log_line("TAKEOVER: {}. edloader stops: every call goes to the system d3d11.dll and no dll of the list is called. "
-                 "Remove that dll from the list, or put it first in the list and add the line 'accept_takeover = true' to "
+                 "Remove that dll from the list, or put it first in the list (or mark it ^) and add the line 'accept_takeover = true' to "
                  "edloader.txt: then edloader still passes the calls on, at your own risk", what);
       else
         log_line("TAKEOVER: {}. edloader stops: every call goes to the system d3d11.dll and no dll of the list is called. "

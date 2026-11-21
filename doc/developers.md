@@ -14,8 +14,23 @@ How edloader chains d3d11 proxies, what a plugin can rely on, and how edloader i
   `d3d11.dll` by name (`LoadLibrary("d3d11.dll")`, `GetProcAddress`): that is edloader. edloader looks at the module
   the call came from (its return address) and passes the call to the element after it; the last element's call
   goes to the system copy.
+- The marks `^` (first), `!` (last) and `^!` (both ends) in front of a name place that element at an end of the
+  chain whatever its line; the other elements keep the order of their lines, and the dlls are loaded in the order of
+  the lines either way. The marks are written together before the name (`^!x.dll`, `^! x.dll`; `^ !x.dll` is
+  an unknown mark). Every line is read and checked before any dll is loaded: two marks for one place, `+` with a
+  mark, an unknown mark, a mark with no name, or one dll on two lines of the chain (by its full path, also a dll
+  that is not a proxy or cannot be loaded) is a `MISCONFIGURATION:` line each, and edloader stops as at a takeover, but loads no dll of the list and
+  `accept_takeover` does not lift it (`misconfigured`). One dll by two paths (another drive, a link) is found after it
+  is loaded, by its module: edloader stops there, the dlls before it loaded. One dll on two lines of which one
+  or both have `+` is logged only. A marked dll that cannot be loaded or is no d3d11 proxy leaves its place to the rest of the list, logged.
+- An element at two places (`^!`) has one module, so the caller's module cannot say where its call comes from:
+  edloader keeps, per thread, the element it is calling now (`calling` in `src/proxy.cc`, put back when the call
+  returns) and passes a call from that element's module to the element after it. A dll of the list calling while
+  another element is called goes to its first place after the one being called, else to the system copy, logged
+  once. `did not call on` names the place of such an element (`(first, ^)`).
 - `D3D11CreateDevice` and `D3D11CreateDeviceAndSwapChain` go through the chain; every other d3d11 export goes
-  straight to the system copy.
+  straight to the system copy. An element without the swap-chain export is passed over for that call; for
+  `did not call on` it counts as having called on.
 - An element that sends its call to the system copy itself (its own setting) ends the chain there; after the
   outermost call edloader logs `did not call on` with its name.
 - A nested call from a module not in the list (for example a dll an element loads by its own path) goes to the
@@ -70,6 +85,11 @@ and copied as `EOSOVH-Win64-Shipping.dll` the known taker.
 
   A plugin that reads them keeps its files out of the game's folder, which a verification of the game's files
   empties of everything not the game's. Without them (no edloader) it falls back to beside its dll; edworld does so.
+- Listed with `^!`, the plugin's `D3D11CreateDevice` (and `...AndSwapChain`) is called twice for one device, on
+  one thread: from the game as the first element, and, inside that call, as the last. It tells the two apart by its
+  own count of calls in progress. A call not inside another one is not proof of the first place: a device another
+  dll of the list makes reaches it only as the last; it is best taken as its only place. It calls on from the thread
+  it was called on, where edloader knows its place.
 - To chain on, the plugin asks for `d3d11.dll` by name, as above. A plugin that wants to stay usable without
   edloader names that dll in its settings, as edworld's `next` does.
 - edloader makes `edloader`, `config`, `logs` and `plugins` when they are missing, and writes
@@ -104,7 +124,9 @@ the log is `git describe` of the tree, taken at each build. `EDLOADER_TESTS` (on
 
 `tools/test.sh <build dir> <scratch dir>` runs under wine without the game: a stand-in for the game creates a device through
 edloader -> two fake proxies -> edworld -> the system copy, and checks the order of the calls and that every file
-lands in its one place. Environment: `EDWORLD_DIR` (an edworld checkout), `EDWORLD_BUILD` (its build directory, with the test's programs),
+lands in its one place; then the takeovers, the marks (`^`, `!`, `^!`, each mistake of the list, one dll by a link)
+and, through `test/swap_app.cc` and `fake_swap`, `^!` with `D3D11CreateDeviceAndSwapChain` passing over an element
+without it. Environment: `EDWORLD_DIR` (an edworld checkout), `EDWORLD_BUILD` (its build directory, with the test's programs),
 `EDWORLD_WINEPREFIX` (a wine prefix kept between runs).
 
 ## Files
@@ -120,5 +142,5 @@ lands in its one place. Environment: `EDWORLD_DIR` (an edworld checkout), `EDWOR
 | `cmake/clang-cl-msvc-sdk.cmake`, `cmake/version.cmake` | the toolchain (clang-cl with MSVC's and the Windows SDK's headers and libraries), the version from `git describe` |
 | `tools/d3d11_exports.txt`, `tools/gen_exports_from_list.py` | the Windows d3d11 export names, and the run of EDVR's generator on them |
 | `tools/gen_exports.py`, `tools/EDVR-LICENSE.txt` | EDVR's export thunk generator (MIT) |
-| `tools/test.sh`, `test/fake_proxy.cc` | the test under wine |
+| `tools/test.sh`, `test/fake_proxy.cc`, `test/swap_app.cc` | the test under wine (`fake_a`, `fake_b`, `fake_swap` from one source) |
 | `NOTICE` | third-party work, file by file, with the licences |

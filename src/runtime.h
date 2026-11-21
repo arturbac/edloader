@@ -31,6 +31,7 @@ namespace edloader
     HMODULE module{};
     create_device_fn create{};
     create_device_swap_fn create_swap{};
+    char const * place{""};  // in the log: " (first, ^)" or " (last, !)" for a dll its mark put there
     };
 
 

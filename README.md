@@ -19,6 +19,8 @@ each with the time in UTC to the millisecond:
 - each element of the chain in order (`chain[0] = ...`), and a dll that could not be loaded or is not a d3d11 mod;
 - a mod that ends the chain early (`did not call on`), and a mod that takes the game's calls past the list
   (`TAKEOVER:`);
+- a mistake in the list (a mark: `^` first, `!` last, `^!` both ends, for a mod that asks for one; or one mod on
+  two lines): `MISCONFIGURATION:`, and the game runs without mods;
 - the device creation: through how many elements, called from which module, passed to which.
 
 Changing the order or taking a mod out is an edit of one line, and the next start's log says what came of it.
