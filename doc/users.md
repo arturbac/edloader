@@ -28,7 +28,7 @@ page, with an example list, `edloader.txt.example`.
    edworld.dll           # first: sees the game's own calls
    +d3dcompiler_47.dll   # EDHM's, before it
    d3d11_edhm.dll
-   d3d11_edvr.dll        # after EDHM, see "EDHM and EDVR" below
+   !d3d11_edvr.dll       # last, after EDHM, see "EDHM and EDVR" below
    ```
 
    A line with `=` is a setting, not a mod; the only one is `accept_takeover` (below).
@@ -77,7 +77,8 @@ A mod pointed at the system's copy ends the list there: the mods after it are no
 
 ## EDHM and EDVR
 
-Put EDHM before EDVR in the list. With EDVR before EDHM, EDHM (3Dmigoto) hands EDVR its own wrapped device; EDVR's flat
+EDVR goes last in the list, marked `!d3d11_edvr.dll`, so EDHM and every other mod stand before it whatever the order
+of the lines. With EDVR before EDHM, EDHM (3Dmigoto) hands EDVR its own wrapped device; EDVR's flat
 anti-aliasing then never finds the game's frame and stands down for the whole session (its log:
 `flat stand-down: entered ... no-known-output-copy`). With EDHM first, EDVR gets the real device, as it does when
 EDVR is the game's `d3d11.dll` and EDHM is chained behind it.
