@@ -171,6 +171,8 @@ extern "C" HRESULT WINAPI edvr_impl_D3D11CreateDevice(
              device == nullptr ? "not asked" : SUCCEEDED(hr) and *device ? "made" : "asked, none made",
              wide(module_of(_ReturnAddress())), wide(target_name(at)));
     report_shortcuts();
+    if(stopped)
+      show_stop_window(nullptr);
     }
   return hr;
   }
@@ -215,6 +217,8 @@ extern "C" HRESULT WINAPI edvr_impl_D3D11CreateDeviceAndSwapChain(
     log_line("D3D11CreateDeviceAndSwapChain: hr 0x{:08X}, first to {}{}", static_cast<unsigned long>(hr),
              wide(at < chain.size() ? target_name(at) : L"the system d3d11.dll"sv), stopped ? stop_reason() : "");
     report_shortcuts();
+    if(stopped)
+      show_stop_window(swap_desc ? swap_desc->OutputWindow : nullptr);
     }
   return hr;
   }

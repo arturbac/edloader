@@ -28,6 +28,15 @@ How edloader chains d3d11 proxies, what a plugin can rely on, and how edloader i
   returns) and passes a call from that element's module to the element after it. A dll of the list calling while
   another element is called goes to its first place after the one being called, else to the system copy, logged
   once. `did not call on` names the place of such an element (`(first, ^)`).
+- When edloader is stopped, the end of the outermost device call opens a window once a process (`src/window.cc`): a
+  dialog from a template in memory, in a thread of its own with its own message loop, owned by the game's window
+  (`OutputWindow` of the swap chain, or the process's visible top-level window) when one is known, shown without
+  taking the focus at the top left of the main screen's work area. Its field has the log's path, under Wine its Unix
+  path (`wine_get_unix_file_name`), and the lines logged by `log_stop_line` (the `MISCONFIGURATION:` lines and the
+  takeover lines that stop edloader), kept in a static buffer of 32 lines copied under the log's lock only; a
+  takeover's lines before the list are forgotten when the list has `accept_takeover = true`. `EDLOADER_WINDOW=test`
+  (the chain test only) makes the dialog without showing it, closes it at once and has the game's call wait for its
+  thread, so a test run puts no window on the desktop.
 - `D3D11CreateDevice` and `D3D11CreateDeviceAndSwapChain` go through the chain; every other d3d11 export goes
   straight to the system copy. An element without the swap-chain export is passed over for that call; for
   `did not call on` it counts as having called on.
@@ -137,6 +146,7 @@ without it. Environment: `EDWORLD_DIR` (an edworld checkout), `EDWORLD_BUILD` (i
 | `src/chain.cc`, `src/chain.h` | the system copy in DllMain, the list (edloader.txt) loaded on the first export call, edloader's own steps guarded |
 | `src/takeovers.cc`, `src/takeovers.h` | who else takes the game's calls: the game's imports, the loader's functions, edloader's own exports, known takers |
 | `src/pe_read.cc`, `src/pe_read.h` | reading modules: names, a jump at a function's start, a function's bytes on disk |
+| `src/window.cc` | the window that tells the player edloader stopped |
 | `src/proxy.cc` | the exported D3D11CreateDevice and ...AndSwapChain (the call passed on to the next element), DllMain |
 | `CMakeLists.txt`, `test/CMakeLists.txt`, `CMakePresets.json`, `cmake/get_cpm.cmake` | the build (CPM: stralgo, small_vectors) |
 | `cmake/clang-cl-msvc-sdk.cmake`, `cmake/version.cmake` | the toolchain (clang-cl with MSVC's and the Windows SDK's headers and libraries), the version from `git describe` |

@@ -44,7 +44,8 @@ fi
 wineserver -p600 >/dev/null 2>&1 || true
 cd "$GAME"
 EDLOADER_DIR=$(win "$ROOT")
-export EDLOADER_DIR EDWORLD_TEST_NEXT=d3d11.dll WINEDEBUG=-all WINEDLLOVERRIDES="d3d11=n,b"
+# EDLOADER_WINDOW=test: the window of a stop made, not shown, closed at once (no window on the desktop)
+export EDLOADER_DIR EDWORLD_TEST_NEXT=d3d11.dll WINEDEBUG=-all WINEDLLOVERRIDES="d3d11=n,b" EDLOADER_WINDOW=test
 set +e
 wine test_app.exe > test_app.out
 set -e
@@ -56,6 +57,7 @@ grep -q "PASSED" test_app.out || fail "edworld checks through the chain"
 # the game's device and then the overlay's, each down the whole list
 [[ $(tr '\n' ' ' < order.txt) == "fake_a fake_b "* ]] || fail "order '$(tr '\n' ' ' < order.txt)'"
 grep -q "hr 0x00000000 through 3 element(s)" "$ROOT/logs/edloader.log" || fail "chain of 3"
+! grep -qE "window (made|shown|closed|not)" "$ROOT/logs/edloader.log" || fail "a window without a stop"
 [[ -s $ROOT/logs/edworld.log ]] || fail "edworld.log not in logs"
 for f in edloader.log edworld.log edloader.txt; do [[ ! -e $GAME/$f ]] || fail "$f beside the game"; done
 [[ ! -e $ELSEWHERE/edworld.log && ! -e $ELSEWHERE/edworld.ini ]] || fail "edworld's files beside its dll"
@@ -78,9 +80,12 @@ for accept in no yes; do
   if [[ $accept == no ]]; then
     grep -q "edloader stops" "$ROOT/logs/edloader.log" || fail "edloader stops at an intruder"
     [[ ! -s order.txt ]] || fail "the list called after a takeover"
+    [[ $(grep -c "window made (EDLOADER_WINDOW=test" "$ROOT/logs/edloader.log") == 1 ]] || fail "the window once at a takeover"
+    grep -q "window closed" "$ROOT/logs/edloader.log" || fail "the window closed at a takeover"
   else
     grep -q "accepted (accept_takeover = true)" "$ROOT/logs/edloader.log" || fail "accept_takeover"
     ! grep -q "edloader stops" "$ROOT/logs/edloader.log" || fail "edloader stopped although the list accepts a takeover"
+    ! grep -qE "window (made|shown|closed|not)" "$ROOT/logs/edloader.log" || fail "a window at an accepted takeover"
     [[ $(tr '\n' ' ' < order.txt) == "fake_a "* ]] || fail "the list not called with accept_takeover"
   fi
 done
@@ -98,6 +103,7 @@ grep -q "EOSOVH-Win64-Shipping.dll is Epic's overlay, a known taker: accepted" "
 ! grep -q "edloader stops" "$ROOT/logs/edloader.log" || fail "edloader stopped at a known taker"
 [[ $(grep -c "a known taker: accepted" "$ROOT/logs/edloader.log") == 1 ]] || fail "a known taker told more than once"
 [[ $(tr '\n' ' ' < order.txt) == "fake_a "* ]] || fail "the list not called after a known taker"
+! grep -qE "window (made|shown|closed|not)" "$ROOT/logs/edloader.log" || fail "a window with a known taker"
 # a dll that hooks edloader's own D3D11CreateDevice in its DllMain, as 3Dmigoto (EDHM) does: put back, the list runs
 cp "$BUILD/test/fake_hooker.dll" "$ROOT/plugins/"
 : > order.txt
@@ -110,6 +116,7 @@ echo "--- edloader.log, hooker"; cat "$ROOT/logs/edloader.log"
 grep -q "fake_hooker.dll hooked edloader's own D3D11CreateDevice inline; put back" "$ROOT/logs/edloader.log" \
   || fail "a hook on edloader's own export put back"
 [[ $(tr '\n' ' ' < order.txt) == "fake_a fake_b "* ]] || fail "order with a hooker '$(tr '\n' ' ' < order.txt)'"
+! grep -qE "window (made|shown|closed|not)" "$ROOT/logs/edloader.log" || fail "a window with a hooker"
 # ReShade, known by its export: it hooks the system d3d11 inline through a stub of no module; accepted without
 # accept_takeover, said once, and the list still called, the calls reaching the system copy through ReShade's hook
 cp "$BUILD/test/fake_reshade.dll" "$ROOT/plugins/"
@@ -125,6 +132,7 @@ grep -q "the system d3d11's D3D11CreateDevice was hooked inline (a jump to ?); R
 ! grep -q "edloader stops" "$ROOT/logs/edloader.log" || fail "edloader stopped at ReShade"
 [[ $(grep -c "a known taker: accepted" "$ROOT/logs/edloader.log") == 1 ]] || fail "ReShade told more than once"
 [[ $(tr '\n' ' ' < order.txt) == "fake_a reshade "* ]] || fail "order with ReShade '$(tr '\n' ' ' < order.txt)'"
+! grep -qE "window (made|shown|closed|not)" "$ROOT/logs/edloader.log" || fail "a window with ReShade"
 # a hook with jmp [rip+rel32], rel32 far from 0: where it leads is read from the function's own address, so the log
 # names the dll it leads into (counted from a copy of the bytes it would read a pointer from elsewhere); a dll of the
 # list, so edloader stops unless accept_takeover, and with it the list is called through the hook
@@ -193,10 +201,13 @@ misconfigured() {  # <label> <list text> <the error's text>
   [[ ! -s order.txt ]] || fail "$1: the list called"
   [[ ! -s loaded.txt ]] || fail "$1: the list loaded ($(tr '\n' ' ' < loaded.txt))"
   log_has "device made" "$1"
+  [[ $(grep -c "window made (EDLOADER_WINDOW=test" "$ROOT/logs/edloader.log") == 1 ]] || fail "$1: the window not once"
+  log_has "window closed" "$1"
 }
 misconfigured two_first '^fake_a.dll\nfake_b.dll\n^!fake_b.dll\n' \
   "2 dlls ask for the first place (^), which one dll can have: line 1 fake_a.dll, line 3 fake_b.dll"
 log_has "lines 2 and 3 name the same dll (fake_b.dll)" "two_first: each mistake its line"
+log_has "not shown, closed at once; 3 line(s) of what stopped edloader, the log's Unix path" "two_first: the window's text"
 misconfigured two_last '!fake_a.dll\n!fake_b.dll\n' "2 dlls ask for the last place (!)"
 misconfigured plain_marked '+^fake_a.dll\nfake_b.dll\n' "line 1 '+^fake_a.dll': '+' (loaded, not chained) together with"
 misconfigured marked_plain '^+fake_a.dll\n' "'+' (loaded, not chained) together with"

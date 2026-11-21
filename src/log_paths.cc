@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstring>
 #include <string>
 #include <vector>
 #include <string_view>
@@ -51,18 +52,26 @@ namespace edloader
       };
     }  // namespace
 
-  auto log_vline(std::string_view fmt, std::format_args args) noexcept -> void
+  namespace
     {
-    if(not log_file)
+    // the lines of what stopped edloader, for the window; static, so keeping one never allocates
+    stop_lines_t stop_lines{};
+    }  // namespace
+
+  auto log_vline(std::string_view fmt, std::format_args args, bool stop) noexcept -> void
+    {
+    if(not log_file and not stop)
       return;
     SYSTEMTIME t;
     GetSystemTime(&t);
     char buf[2048];
     cut_buffer_t room{buf, buf + sizeof buf - 1};  // one byte kept for the line's end
+    char * text{buf};  // the line after its time
     try
       {
       std::format_to(cut_out_t{&room}, "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z ", t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond,
                      t.wMilliseconds);
+      text = room.at;
       std::vformat_to(cut_out_t{&room}, fmt, args);
       }
     catch(...)
@@ -74,8 +83,36 @@ namespace edloader
       }
     *room.at++ = '\n';
     exclusive_lock_t const hold{log_lock};
+    // under the lock only copying: a fault there would leave the lock taken (no unwinding of a hardware fault)
+    if(stop)
+      {
+      if(stop_lines.count != stop_line_count)
+        {
+        std::size_t const n{static_cast<std::size_t>(room.at - 1 - text)};  // without the line's end
+        std::memcpy(stop_lines.text[stop_lines.count], text, n);
+        stop_lines.text[stop_lines.count][n] = '\0';
+        ++stop_lines.count;
+        }
+      else
+        stop_lines.more = true;
+      }
+    if(not log_file)
+      return;
     std::fwrite(buf, 1, static_cast<std::size_t>(room.at - buf), log_file);
     std::fflush(log_file);
+    }
+
+  auto copy_stop_lines(stop_lines_t & out) noexcept -> void
+    {
+    shared_lock_t const hold{log_lock};
+    std::memcpy(&out, &stop_lines, sizeof out);
+    }
+
+  auto forget_stop_lines() noexcept -> void
+    {
+    exclusive_lock_t const hold{log_lock};
+    stop_lines.count = 0;
+    stop_lines.more = false;
     }
 
 

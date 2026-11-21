@@ -181,6 +181,11 @@ is not a d3d11 mod with `not a d3d11 proxy`. Without `edloader.txt` the log says
 runs without any mod. A mistake in the list's marks is a `MISCONFIGURATION:` line each, then `edloader stops`: fix
 those lines and start the game again.
 
+When edloader stops (a mistake in the list, or a takeover it does not accept), it also opens a window once, at the
+top left of the main screen: `edloader: mods not loaded`, with the log's path (and under Proton the same path on
+Linux) and the lines of what stopped it. The text can be selected and copied; OK closes the window. The game goes on
+without the list's mods while it is open.
+
 ## After a verification of the game's files
 
 Steam's and the launcher's verification removes from the game's folder everything that is not the game's, so

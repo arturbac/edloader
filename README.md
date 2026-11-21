@@ -20,7 +20,8 @@ each with the time in UTC to the millisecond:
 - a mod that ends the chain early (`did not call on`), and a mod that takes the game's calls past the list
   (`TAKEOVER:`);
 - a mistake in the list (a mark: `^` first, `!` last, `^!` both ends, for a mod that asks for one; or one mod on
-  two lines): `MISCONFIGURATION:`, and the game runs without mods;
+  two lines): `MISCONFIGURATION:`, and the game runs without mods; then, as at a takeover that stops it, a window
+  says so once, with the log's path and those lines;
 - the device creation: through how many elements, called from which module, passed to which.
 
 Changing the order or taking a mod out is an edit of one line, and the next start's log says what came of it.

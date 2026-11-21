@@ -125,17 +125,17 @@ namespace edloader
       {
       stopped = true;
       if(listed(by))
-        log_line("TAKEOVER: {}. edloader stops: every call goes to the system d3d11.dll and no dll of the list is called. "
+        log_stop_line("TAKEOVER: {}. edloader stops: every call goes to the system d3d11.dll and no dll of the list is called. "
                  "Remove that dll from the list, or put it first in the list (or mark it ^) and add the line 'accept_takeover = true' to "
                  "edloader.txt: then edloader still passes the calls on, at your own risk", what);
       else
-        log_line("TAKEOVER: {}. edloader stops: every call goes to the system d3d11.dll and no dll of the list is called. "
+        log_stop_line("TAKEOVER: {}. edloader stops: every call goes to the system d3d11.dll and no dll of the list is called. "
                  "The hook is not from a dll of the list but from something loaded outside it (another wrapper in the "
                  "game's folder, an overlay, a security program). Add the line 'accept_takeover = true' to "
                  "edloader.txt: then edloader still passes the calls on, at your own risk", what);
       }
     else
-      log_line("TAKEOVER: {}", what);
+      log_stop_line("TAKEOVER: {}", what);
     }
 
   watched_import_t watched_imports[2]{{"D3D11CreateDevice", nullptr, nullptr, {}, nullptr},

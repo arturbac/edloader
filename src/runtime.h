@@ -103,8 +103,32 @@ namespace edloader
     }
 
   ///\brief one line, time-stamped (UTC), cut to 2 KB, written at once under the log's lock; a line that cannot be made
-  /// is logged as such (never thrown)
-  auto log_vline(std::string_view fmt, std::format_args args) noexcept -> void;
+  /// is logged as such (never thrown). stop: a line of what stopped edloader, kept (without its time) for the window
+  /// that tells the player, also when the log could not be opened
+  auto log_vline(std::string_view fmt, std::format_args args, bool stop = false) noexcept -> void;
+
+  constexpr std::size_t stop_line_count{32};
+  constexpr std::size_t stop_line_size{2048};
+
+  ///\brief the lines of what stopped edloader: copied under the log's lock (nothing else done there); more: lines that
+  /// did not fit
+  struct stop_lines_t
+    {
+    char text[stop_line_count][stop_line_size];
+    std::size_t count;
+    bool more;
+    };
+
+  auto copy_stop_lines(stop_lines_t & out) noexcept -> void;
+  ///\brief the lines kept so far forgotten: a takeover's advice before the list said accept_takeover = true
+  auto forget_stop_lines() noexcept -> void;
+
+  ///\brief log_vline of a line of what stopped edloader
+  template<typename... args_t>
+  auto log_stop_line(std::format_string<args_t...> fmt, args_t &&... args) noexcept -> void
+    {
+    log_vline(fmt.get(), std::make_format_args(args...), true);
+    }
 
   ///\brief log_vline with the format checked against its arguments when compiled
   template<typename... args_t>

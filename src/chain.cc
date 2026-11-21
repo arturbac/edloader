@@ -169,7 +169,7 @@ namespace edloader
       if(count > 1)
         {
         ++errors;
-        log_line("MISCONFIGURATION: {} dlls ask for the {} place ({}), which one dll can have: {}", count,
+        log_stop_line("MISCONFIGURATION: {} dlls ask for the {} place ({}), which one dll can have: {}", count,
                  at_first ? "first" : "last", at_first ? "^" : "!", who);
         }
       }
@@ -185,7 +185,7 @@ namespace edloader
         else
           {
           ++errors;
-          log_line("MISCONFIGURATION: lines {} and {} name the same dll ({}): a dll stands in the chain once "
+          log_stop_line("MISCONFIGURATION: lines {} and {} name the same dll ({}): a dll stands in the chain once "
                    "(^! puts one dll at both ends)", a.number, b.number, b.text);
           }
         }
@@ -198,7 +198,7 @@ namespace edloader
     misconfigured = true;
     stopped = true;
     chain.clear();
-    log_line("MISCONFIGURATION: edloader stops: every call goes to the system d3d11.dll and no dll of the list is {}. "
+    log_stop_line("MISCONFIGURATION: edloader stops: every call goes to the system d3d11.dll and no dll of the list is {}. "
              "Fix the lines above in edloader.txt; a mod's own documentation says if it needs ^ (first), ! (last) or "
              "^! (both)", loaded);
     log_line("chain: game -> 0 proxy(ies) -> system d3d11.dll");
@@ -243,6 +243,9 @@ namespace edloader
       else
         log_line("unknown setting '{}' ignored", key);
       }
+    // a takeover before the list told to add accept_takeover, which the list has: no longer the window's to say
+    if(accept_takeover)
+      forget_stop_lines();
     // the dlls' lines and their marks, all checked before any dll is loaded: a dll runs its own code when loaded
     wchar_t self[MAX_PATH]{};
     GetModuleFileNameW(self_module, self, MAX_PATH);
@@ -258,7 +261,7 @@ namespace edloader
       if(char const * const wrong{read_marks(text, l)})
         {
         ++bad_marks;
-        log_line("MISCONFIGURATION: line {} '{}': {}", l.number, text, wrong);
+        log_stop_line("MISCONFIGURATION: line {} '{}': {}", l.number, text, wrong);
         continue;
         }
       l.path = full_path(widen(l.text));
@@ -301,7 +304,7 @@ namespace edloader
       if(not l.plain and std::ranges::find(chained, module) != chained.end())
         {
         // one dll by two spellings of its path (another drive, a link): the same module twice in the chain
-        log_line("MISCONFIGURATION: line {} {} is a dll already in the chain, by another path", l.number, l.text);
+        log_stop_line("MISCONFIGURATION: line {} {} is a dll already in the chain, by another path", l.number, l.text);
         stop_misconfigured(stralgo::stl::merge("called (the dlls before line "sv,
                                                std::to_string(l.number), " are loaded)"sv).c_str());
         return;

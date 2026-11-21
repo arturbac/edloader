@@ -76,12 +76,12 @@ add_custom_target(edloader_version
   VERBATIM)
 
 set_source_files_properties("${gen}/edvr_thunks_d3d11.asm" PROPERTIES GENERATED TRUE)
-add_library(edloader SHARED src/proxy.cc src/chain.cc src/takeovers.cc src/pe_read.cc src/log_paths.cc
+add_library(edloader SHARED src/proxy.cc src/chain.cc src/takeovers.cc src/pe_read.cc src/log_paths.cc src/window.cc
                      "${gen}/edvr_thunks_d3d11.asm" "${gen}/edvr_d3d11.def")
 target_compile_definitions(edloader PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS UNICODE _UNICODE)
 target_include_directories(edloader PRIVATE "${gen}")
 target_compile_options(edloader PRIVATE $<$<COMPILE_LANGUAGE:CXX>:/W4 /FI${gen}/edloader_version.h>)
-target_link_libraries(edloader PRIVATE kernel32 stralgo::stralgo)
+target_link_libraries(edloader PRIVATE kernel32 user32 stralgo::stralgo)
 target_link_options(edloader PRIVATE /DEBUG:FULL $<$<NOT:$<CONFIG:Debug>>:/OPT:REF /OPT:ICF>)
 set_target_properties(edloader PROPERTIES
   PREFIX ""
