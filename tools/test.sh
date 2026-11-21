@@ -44,7 +44,7 @@ fi
 wineserver -p600 >/dev/null 2>&1 || true
 cd "$GAME"
 EDLOADER_DIR=$(win "$ROOT")
-# EDLOADER_WINDOW=test: the window of a stop made, not shown, closed at once (no window on the desktop)
+# EDLOADER_WINDOW=test: the window of a stop made, not shown, the clipboard left alone, closed at once (nothing on the desktop)
 export EDLOADER_DIR EDWORLD_TEST_NEXT=d3d11.dll WINEDEBUG=-all WINEDLLOVERRIDES="d3d11=n,b" EDLOADER_WINDOW=test
 set +e
 wine test_app.exe > test_app.out
@@ -203,11 +203,12 @@ misconfigured() {  # <label> <list text> <the error's text>
   log_has "device made" "$1"
   [[ $(grep -c "window made (EDLOADER_WINDOW=test" "$ROOT/logs/edloader.log") == 1 ]] || fail "$1: the window not once"
   log_has "window closed" "$1"
+  log_has ", its OK there)" "$1"
 }
 misconfigured two_first '^fake_a.dll\nfake_b.dll\n^!fake_b.dll\n' \
   "2 dlls ask for the first place (^), which one dll can have: line 1 fake_a.dll, line 3 fake_b.dll"
 log_has "lines 2 and 3 name the same dll (fake_b.dll)" "two_first: each mistake its line"
-log_has "not shown, closed at once; 3 line(s) of what stopped edloader, the log's Unix path" "two_first: the window's text"
+log_has "not shown, the clipboard left alone, closed at once; 3 line(s) of what stopped edloader, the log's Unix path" "two_first: the window's text"
 misconfigured two_last '!fake_a.dll\n!fake_b.dll\n' "2 dlls ask for the last place (!)"
 misconfigured plain_marked '+^fake_a.dll\nfake_b.dll\n' "line 1 '+^fake_a.dll': '+' (loaded, not chained) together with"
 misconfigured marked_plain '^+fake_a.dll\n' "'+' (loaded, not chained) together with"

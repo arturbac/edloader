@@ -183,8 +183,10 @@ those lines and start the game again.
 
 When edloader stops (a mistake in the list, or a takeover it does not accept), it also opens a window once, at the
 top left of the main screen: `edloader: mods not loaded`, with the log's path (and under Proton the same path on
-Linux) and the lines of what stopped it. The text can be selected and copied; OK closes the window. The game goes on
-without the list's mods while it is open.
+Linux) and the lines of what stopped it. The same report is put on the clipboard (`Error report copied to
+clipboard.`), ready to paste into a message; note that the paths in it hold your account's folder names. A click on
+`OK (click to close)` closes the window. The window is made not to take the game's focus, so the game stays on
+its full screen; keys do not reach it. The game goes on without the list's mods while it is open.
 
 ![edloader's window after a mistake in edloader.txt: two mods asking for the first place](images/stop_window.png)
 

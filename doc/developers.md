@@ -30,13 +30,19 @@ How edloader chains d3d11 proxies, what a plugin can rely on, and how edloader i
   once. `did not call on` names the place of such an element (`(first, ^)`).
 - When edloader is stopped, the end of the outermost device call opens a window once a process (`src/window.cc`): a
   dialog from a template in memory, in a thread of its own with its own message loop, owned by the game's window
-  (`OutputWindow` of the swap chain, or the process's visible top-level window) when one is known, shown without
-  taking the focus at the top left of the main screen's work area. Its field has the log's path, under Wine its Unix
-  path (`wine_get_unix_file_name`), and the lines logged by `log_stop_line` (the `MISCONFIGURATION:` lines and the
-  takeover lines that stop edloader), kept in a static buffer of 32 lines copied under the log's lock only; a
-  takeover's lines before the list are forgotten when the list has `accept_takeover = true`. `EDLOADER_WINDOW=test`
-  (the chain test only) makes the dialog without showing it, closes it at once and has the game's call wait for its
-  thread, so a test run puts no window on the desktop.
+  (`OutputWindow` of the swap chain, or the process's visible top-level window) when one is known, at the top left of
+  the main screen's work area. It is never activated: no caption or system menu, `WS_EX_NOACTIVATE`,
+  `MA_NOACTIVATE` on a click, and static controls only (a button or an edit control takes the focus on a click,
+  which activates the window); a click that activated it hid the game's full screen under Wine. "OK (click to
+  close)" is a static with `SS_NOTIFY`; the window goes when the button is let go (the mouse captured meanwhile),
+  so the release does not reach the game. No taskbar button, which a click would activate. The report (the log's path, under Wine its Unix path through
+  `wine_get_unix_file_name`, and the lines logged by `log_stop_line`: the `MISCONFIGURATION:` lines and the takeover
+  lines that stop edloader, kept in a static buffer of 32 lines copied under the log's lock only) is put on the
+  clipboard when the window is shown; a takeover's lines before the list are forgotten when the list has
+  `accept_takeover = true`. On closing, a game's window found minimized is restored (`ShowWindowAsync`), and one line
+  says the clicks, whether the window was activated or got the focus, and the owner's class.
+  `EDLOADER_WINDOW=test` (the chain test only) makes the dialog without showing it, leaves the clipboard alone, closes
+  it at once and has the game's call wait for its thread, so a test run puts nothing on the desktop.
 - `D3D11CreateDevice` and `D3D11CreateDeviceAndSwapChain` go through the chain; every other d3d11 export goes
   straight to the system copy. An element without the swap-chain export is passed over for that call; for
   `did not call on` it counts as having called on.

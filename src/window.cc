@@ -1,10 +1,13 @@
 // edloader - the window that tells the player edloader stopped (the list's mistake or a takeover): once a process, in
 // a thread of its own, so the game goes on (without the list's mods) while it is open. A dialog from a template in
-// memory (no resource file): a line of text, a read-only field with the log's path and the lines of what stopped
-// edloader (wrapped, a vertical scroll bar), OK. Owned by the game's window when one is known, so it stays above the
-// game in full screen too; shown without taking the focus, at the top left of the main screen's work area.
-// EDLOADER_WINDOW=test (the chain test only): the dialog is made but not shown, closed at once (WM_CLOSE), and the game's call
-// waits for its thread, so a test run puts no window on the desktop.
+// memory (no resource file), with no title bar and no control that takes the focus: the window is never activated, as
+// a click that activated it hid the game's full screen under Wine (ed-lab, 2026-11-21). Texts only: a title line, a
+// line saying the report is on the clipboard, the report (the log's path, under Wine its Unix path, the lines of what
+// stopped edloader) and "OK (click to close)". The report goes to the clipboard when the window is shown. Owned by the
+// game's window when one is known, so it stays above the game in full screen; at the top left of the main screen's
+// work area. On closing, a game's window found minimized is restored.
+// EDLOADER_WINDOW=test (the chain test only): the dialog is made but not shown, the clipboard left alone, closed at
+// once (WM_CLOSE), and the game's call waits for its thread, so a test run puts nothing on the desktop.
 #include "runtime.h"
 #include "chain.h"
 
@@ -31,7 +34,14 @@ namespace edloader
     bool window_cut{};                    // the field's text did not fit
     alignas(DWORD) WORD window_template[512]{};  // the dialog's template, DWORD-aligned items
 
-    constexpr WORD field_id{100};
+    constexpr WORD note_id{100};
+    constexpr WORD report_id{101};
+    constexpr WORD close_id{102};
+    // what the window got, for the line logged when it closes (set in its procedure: no allocation there)
+    bool got_activated{};
+    bool got_focus{};
+    int got_clicks{};
+    bool closing{};  // OK pressed: the window goes when the button is let go, so the release does not reach the game
 
     ///\brief text appended to the field's, cut at its end
     struct text_out_t
@@ -107,6 +117,7 @@ namespace edloader
     struct template_out_t
       {
       std::size_t at{};
+      std::size_t count_at{};  // where the dialog's count of items stands, filled by item()
 
       auto word(WORD w) noexcept -> void
         {
@@ -147,6 +158,7 @@ namespace edloader
         word(kind);  // 0x0080 button, 0x0081 edit, 0x0082 static
         text(title);
         word(0);  // no creation data
+        ++window_template[count_at];
         }
       };
 
@@ -154,10 +166,11 @@ namespace edloader
       {
       template_out_t t;
       // about 640x380 at 96 DPI (a dialog unit there 1.5 x 1.625 pixels); in dialog units, so the system's DPI scales
-      // it, the game's process left as it is
-      t.dword(WS_POPUP | WS_CAPTION | WS_SYSMENU | DS_SETFONT);
-      t.dword(WS_EX_TOPMOST | (window_owner ? 0 : WS_EX_APPWINDOW));
-      t.word(3);
+      // it, the game's process left as it is. No caption, no system menu: either could activate it
+      t.dword(WS_POPUP | WS_BORDER | DS_SETFONT);
+      t.dword(WS_EX_TOPMOST | WS_EX_NOACTIVATE);  // no taskbar button either: a click on it would activate the window
+      t.count_at = t.at;
+      t.word(0);  // the items, counted as they are added
       t.word(0);
       t.word(0);
       t.word(420);
@@ -167,12 +180,11 @@ namespace edloader
       t.text(L"edloader: mods not loaded");
       t.word(8);
       t.text(L"MS Shell Dlg");
-      t.item(SS_LEFT, 7, 7, 406, 18, 0xFFFF, 0x0082,
-             L"edloader stopped: the game runs without the mods of edloader.txt. The log and what stopped it are "
-             L"below; the text can be selected and copied.");
-      t.item(ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL | WS_VSCROLL | WS_BORDER | WS_TABSTOP, 7, 28, 406, 176, field_id,
-             0x0081, L"");
-      t.item(BS_DEFPUSHBUTTON | WS_TABSTOP, 356, 211, 57, 14, IDOK, 0x0080, L"OK");
+      // statics only: a static never takes the focus (a button or an edit control would, and activate the window)
+      t.item(SS_LEFT | SS_NOPREFIX, 7, 5, 406, 10, 0xFFFF, 0x0082, L"edloader: mods not loaded");
+      t.item(SS_LEFT | SS_NOPREFIX, 7, 17, 406, 18, note_id, 0x0082, L"");
+      t.item(SS_LEFT | SS_EDITCONTROL | SS_NOPREFIX | WS_BORDER, 7, 37, 406, 168, report_id, 0x0082, L"");
+      t.item(SS_CENTER | SS_NOTIFY | SS_NOPREFIX | WS_BORDER, 330, 212, 83, 12, close_id, 0x0082, L"OK (click to close)");
       }
 
     // no allocation, nothing thrown: a fault in here would pass through user32's frames
@@ -181,11 +193,34 @@ namespace edloader
       switch(message)
         {
         case WM_INITDIALOG:
-          SetDlgItemTextW(dialog, field_id, window_text);
+          SetDlgItemTextW(dialog, report_id, window_text);
           return FALSE;  // no focus given: the game keeps it
+        case WM_MOUSEACTIVATE:
+          ++got_clicks;
+          SetWindowLongPtrW(dialog, DWLP_MSGRESULT, MA_NOACTIVATE);  // the click still reaches the window
+          return TRUE;
+        case WM_ACTIVATE:
+          if(LOWORD(w) != WA_INACTIVE)
+            got_activated = true;
+          return FALSE;
+        case WM_SETFOCUS:
+          got_focus = true;
+          return FALSE;
         case WM_COMMAND:
-          if(LOWORD(w) == IDOK or LOWORD(w) == IDCANCEL)
+          if(LOWORD(w) == close_id and HIWORD(w) == STN_CLICKED)
+            {
+            closing = true;
+            SetCapture(dialog);  // the release comes here, not to the window under it
+            }
+          else if(LOWORD(w) == IDCANCEL)
             DestroyWindow(dialog);
+          return TRUE;
+        case WM_LBUTTONUP:
+          if(closing)
+            {
+            ReleaseCapture();
+            DestroyWindow(dialog);
+            }
           return TRUE;
         case WM_DESTROY:
           PostQuitMessage(0);
@@ -196,6 +231,52 @@ namespace edloader
       }
 
     HWND window_dialog{};
+
+    ///\brief the report to the clipboard: the text copied first, the clipboard held only for the handing over
+    ///\brief the report to the clipboard: the text copied first, the clipboard held only for the handing over; 0, or
+    /// the error of the step that failed (taken at once, before anything else can change it)
+    auto copy_report() noexcept -> DWORD
+      {
+      std::size_t const bytes{(std::wcslen(window_text) + 1) * sizeof(wchar_t)};
+      HGLOBAL const memory{GlobalAlloc(GMEM_MOVEABLE, bytes)};
+      if(not memory)
+        return GetLastError();
+      void * const at{GlobalLock(memory)};
+      if(not at)
+        {
+        DWORD const error{GetLastError()};
+        GlobalFree(memory);
+        return error;
+        }
+      std::memcpy(at, window_text, bytes);
+      GlobalUnlock(memory);
+      DWORD error{};
+      bool open{};
+      for(int tries{}; tries != 5 and not open; ++tries)
+        {
+        open = OpenClipboard(window_dialog) != FALSE;
+        if(not open)
+          {
+          error = GetLastError();
+          Sleep(50);  // another program holds it
+          }
+        }
+      if(not open)
+        {
+        GlobalFree(memory);
+        return error;
+        }
+      if(not EmptyClipboard())
+        error = GetLastError();
+      else if(not SetClipboardData(CF_UNICODETEXT, memory))
+        error = GetLastError();
+      else
+        error = 0;
+      CloseClipboard();
+      if(error != 0)
+        GlobalFree(memory);  // given, it is the system's
+      return error;
+      }
 
     auto make_window(char const *) -> void
       {
@@ -213,13 +294,25 @@ namespace edloader
         SetWindowPos(window_dialog, HWND_TOPMOST, work.left, work.top, 0, 0, SWP_NOSIZE | SWP_NOACTIVATE);
       if(window_test)
         {
-        log_line("window made (EDLOADER_WINDOW=test: not shown, closed at once; {} line(s) of what stopped edloader{}{}{})",
+        SetDlgItemTextW(window_dialog, note_id, L"The clipboard left alone (a test).");
+        log_line("window made (EDLOADER_WINDOW=test: not shown, the clipboard left alone, closed at once; {} line(s) of "
+                 "what stopped edloader{}{}{}{})",
                  window_lines.count, window_lines.more ? " and more" : "", window_unix ? ", the log's Unix path" : "",
-                 window_owner ? ", owned by a window of the process" : "");
+                 window_owner ? ", owned by a window of the process" : "",
+                 GetDlgItem(window_dialog, close_id) ? ", its OK there" : ", NO OK");
         PostMessageW(window_dialog, WM_CLOSE, 0, 0);
         }
       else
         {
+        DWORD const copy_error{copy_report()};
+        SetDlgItemTextW(window_dialog, note_id,
+                        copy_error == 0 ? L"Error report copied to clipboard. The game runs without the mods of edloader.txt."
+                                        : L"The error report could not be copied; see the log. The game runs without the "
+                                          L"mods of edloader.txt.");
+        if(copy_error == 0)
+          log_line("window: the report copied to the clipboard");
+        else
+          log_line("window: the report could not be copied to the clipboard (error {})", copy_error);
         ShowWindow(window_dialog, SW_SHOWNOACTIVATE);
         log_line("window shown{}", window_owner == nullptr ? ", without an owner (no window of the game found)"
                                    : window_owner_from_swap ? ", owned by the game's window (the swap chain's)"
@@ -233,12 +326,21 @@ namespace edloader
         {
         MSG m;
         while(GetMessageW(&m, nullptr, 0, 0) > 0)
-          if(not IsDialogMessageW(window_dialog, &m))
-            {
-            TranslateMessage(&m);
-            DispatchMessageW(&m);
-            }
-        log_line("window closed");
+          {
+          TranslateMessage(&m);
+          DispatchMessageW(&m);
+          }
+        // a game's window hidden after all (minimized): back, without waiting for its thread. focus: the dialog's own
+        // (its statics never take one)
+        bool const minimized{window_owner and IsIconic(window_owner)};
+        if(minimized)
+          ShowWindowAsync(window_owner, SW_RESTORE);
+        wchar_t owner_class[64]{};
+        if(window_owner)
+          GetClassNameW(window_owner, owner_class, 64);
+        log_line("window closed (clicks {}, activated {}, focus {}; the game's window {}{}{})", got_clicks,
+                 got_activated ? "yes" : "no", got_focus ? "yes" : "no", minimized ? "minimized, its restoring asked" : "not minimized",
+                 window_owner ? ", class " : "", wide(owner_class));
         }
       return 0;
       }
