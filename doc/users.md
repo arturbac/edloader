@@ -186,6 +186,8 @@ top left of the main screen: `edloader: mods not loaded`, with the log's path (a
 Linux) and the lines of what stopped it. The text can be selected and copied; OK closes the window. The game goes on
 without the list's mods while it is open.
 
+![edloader's window after a mistake in edloader.txt: two mods asking for the first place](images/stop_window.png)
+
 ## After a verification of the game's files
 
 Steam's and the launcher's verification removes from the game's folder everything that is not the game's, so
