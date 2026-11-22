@@ -133,7 +133,9 @@ The dll is `<build dir>/d3d11.dll`. The export thunks come from the Windows d3d1
 `tools/d3d11_exports.txt`, turned into thunks by EDVR's generator (`tools/gen_exports.py`, MIT, unchanged).
 Presets: `edloader-debug` and `edloader-release` build in `build/<preset>`; `kdev-edloader-debug` and
 `kdev-edloader-release` are the same without a build directory, for an IDE that chooses its own. The version in
-the log is `git describe` of the tree, taken at each build. `EDLOADER_TESTS` (on) builds the test's dlls.
+the log is taken from git at each build (`cmake/version.cmake`): `vX.Y.Z` for a release (HEAD on its tag, no
+uncommitted changes), otherwise `<the last vX.Y.Z tag>-<HEAD's short hash>`, with `-dirty` when tracked files differ
+from HEAD (`v0.0.0-<hash>` before the first tag). `EDLOADER_TESTS` (on) builds the test's dlls.
 
 ## Test
 
@@ -156,7 +158,7 @@ without it. Environment: `EDWORLD_DIR` (an edworld checkout), `EDWORLD_BUILD` (i
 | `src/window.cc` | the window that tells the player edloader stopped |
 | `src/proxy.cc` | the exported D3D11CreateDevice and ...AndSwapChain (the call passed on to the next element), DllMain |
 | `CMakeLists.txt`, `test/CMakeLists.txt`, `CMakePresets.json`, `cmake/get_cpm.cmake` | the build (CPM: stralgo, small_vectors) |
-| `cmake/clang-cl-msvc-sdk.cmake`, `cmake/version.cmake` | the toolchain (clang-cl with MSVC's and the Windows SDK's headers and libraries), the version from `git describe` |
+| `cmake/clang-cl-msvc-sdk.cmake`, `cmake/version.cmake` | the toolchain (clang-cl with MSVC's and the Windows SDK's headers and libraries), the version from git (`vX.Y.Z`, `vX.Y.Z-<hash>`, `-dirty`) |
 | `tools/d3d11_exports.txt`, `tools/gen_exports_from_list.py` | the Windows d3d11 export names, and the run of EDVR's generator on them |
 | `tools/gen_exports.py`, `tools/EDVR-LICENSE.txt` | EDVR's export thunk generator (MIT) |
 | `tools/test.sh`, `test/fake_proxy.cc`, `test/swap_app.cc` | the test under wine (`fake_a`, `fake_b`, `fake_c`, `fake_swap` from one source) |
