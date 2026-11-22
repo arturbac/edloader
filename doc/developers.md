@@ -145,7 +145,8 @@ lands in its one place; then the takeovers, the marks (`^`, `!`, `^!`, `^` and `
 (called by the marks, loaded by the lines), each mistake of the list, one dll by a link)
 and, through `test/swap_app.cc` and `fake_swap`, `^!` with `D3D11CreateDeviceAndSwapChain` passing over an element
 without it. Environment: `EDWORLD_DIR` (an edworld checkout), `EDWORLD_BUILD` (its build directory, with the test's programs),
-`EDWORLD_WINEPREFIX` (a wine prefix kept between runs).
+`EDWORLD_WINEPREFIX` (a wine prefix kept between runs). With no `DISPLAY` (Wayland only) the script sets
+`WINE_USE_EGL=1` unless it is set already: wine's OpenGL, which wined3d needs, comes then only through EGL.
 
 ## Files
 

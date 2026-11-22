@@ -3,7 +3,7 @@
 # edworld = its build for anyone (edworld/edworld.dll), not the one that works with EHT.
 # Needs a CMake build here (EDLOADER_TESTS on) and one of edworld (EDWORLD_TESTS on, its tools/test.sh run once).
 # Environment: EDWORLD_DIR (an edworld checkout: its test data), EDWORLD_BUILD (that checkout's build directory),
-# EDWORLD_WINEPREFIX (a wine prefix kept warm between runs).
+# EDWORLD_WINEPREFIX (a wine prefix kept warm between runs); with no DISPLAY, WINE_USE_EGL=1 unless set.
 # Usage: tools/test.sh <build dir> <scratch dir>
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")/.." && pwd)
@@ -37,6 +37,9 @@ printf '# test chain\nfake_a.dll\nfake_b.dll   ; by name back to edloader\n%s   
   "$(win "$ELSEWHERE/edworld.dll")" > "$ROOT/edloader.txt"
 # warm prefix shared with edworld's test (made once, reused); a fresh one costs minutes in wineboot
 export WINEPREFIX=$EDWORLD_WINEPREFIX
+# with no X server (Wayland only, e.g. another account's session) wine's OpenGL, which wined3d needs, comes only
+# through EGL, off unless WINE_USE_EGL is set
+[[ -n ${DISPLAY:-} ]] || export WINE_USE_EGL=${WINE_USE_EGL:-1}
 if [[ ! -f $WINEPREFIX/system.reg ]]; then
   mkdir -p "$WINEPREFIX"
   WINEDEBUG=-all wineboot -i >/dev/null 2>&1 || true
