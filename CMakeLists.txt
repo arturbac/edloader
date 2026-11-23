@@ -24,34 +24,17 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT Embedded)
 
-find_package(Python3 REQUIRED COMPONENTS Interpreter)
-
 # edplugin_common: the code and the build steps the plugins share, with CPM and stralgo (string operations: merge in
 # place of chained +; small_vectors under it), pinned there. CPM_SOURCE_CACHE (a filled cache) and
 # FETCHCONTENT_FULLY_DISCONNECTED=ON configure without the network
 add_subdirectory(edplugin_common)
 
-set(gen "${CMAKE_BINARY_DIR}/gen")
-file(MAKE_DIRECTORY "${gen}")
+# exports: the Windows d3d11 names from a list, a thunk each but the two edloader defines (gen/d3d11_proxy.*)
+edplugin_common_proxy_exports(d3d11 tools/d3d11_exports.txt WRAP D3D11CreateDevice D3D11CreateDeviceAndSwapChain)
 
-# exports: the Windows d3d11 names from a list, thunked by EDVR's generator (tools/gen_exports.py, MIT)
-add_custom_command(
-  OUTPUT "${gen}/edvr_d3d11.def" "${gen}/edvr_thunks_d3d11.asm" "${gen}/edvr_exports_d3d11.inc"
-  COMMAND "${Python3_EXECUTABLE}" tools/gen_exports.py --self-test
-  COMMAND "${Python3_EXECUTABLE}" tools/gen_exports_from_list.py --source tools/d3d11_exports.txt --tag d3d11
-          --out "${gen}" --wrap D3D11CreateDevice --wrap D3D11CreateDeviceAndSwapChain
-  DEPENDS tools/gen_exports.py tools/gen_exports_from_list.py tools/d3d11_exports.txt
-  WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-  COMMENT "d3d11 exports"
-  VERBATIM)
-add_custom_target(edloader_generated DEPENDS
-  "${gen}/edvr_d3d11.def" "${gen}/edvr_thunks_d3d11.asm" "${gen}/edvr_exports_d3d11.inc")
-
-set_source_files_properties("${gen}/edvr_thunks_d3d11.asm" PROPERTIES GENERATED TRUE)
 add_library(edloader SHARED src/proxy.cc src/chain.cc src/takeovers.cc src/pe_read.cc src/log_paths.cc src/window.cc
-                     "${gen}/edvr_thunks_d3d11.asm" "${gen}/edvr_d3d11.def")
+                     "${d3d11_PROXY_ASM}" "${d3d11_PROXY_DEF}")
 target_compile_definitions(edloader PRIVATE _CRT_SECURE_NO_WARNINGS)
-target_include_directories(edloader PRIVATE "${gen}")
 target_compile_options(edloader PRIVATE $<$<COMPILE_LANGUAGE:CXX>:/W4>)
 target_link_libraries(edloader PRIVATE kernel32 user32 edplugin_common::edplugin_common)
 target_link_options(edloader PRIVATE /DEBUG:FULL $<$<NOT:$<CONFIG:Debug>>:/OPT:REF /OPT:ICF>)
@@ -61,7 +44,6 @@ set_target_properties(edloader PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
   ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
   PDB_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
-add_dependencies(edloader edloader_generated)
 edplugin_common_version(EDLOADER_VERSION edloader_version.h edloader)
 edplugin_common_pin(edloader)
 

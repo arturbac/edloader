@@ -4,17 +4,10 @@
 #include "pe_read.h"
 #include "takeovers.h"
 #include "edplugin_common_commit.h"
+#include "d3d11_proxy.h"
 
 #include <optional>
 #include <string>
-
-extern "C"
-  {
-  extern void * edvr_realProcs_d3d11[];
-  void edvr_unresolved_d3d11();
-  }
-
-
 #include <string_view>
 
 #include <stralgo/stralgo.h>
@@ -22,11 +15,6 @@ extern "C"
 namespace edloader
   {
   using namespace std::string_view_literals;
-
-  char const * const export_names[]{
-#include "edvr_exports_d3d11.inc"
-  };
-  constexpr std::size_t export_count{sizeof(export_names) / sizeof(export_names[0])};
 
   bool misconfigured{};
 
@@ -44,9 +32,9 @@ namespace edloader
       {
       system_module = nullptr;
       }
-    for(std::size_t i{}; i != export_count; ++i)
-      if(not edvr_realProcs_d3d11[i])
-        edvr_realProcs_d3d11[i] = reinterpret_cast<void *>(&edvr_unresolved_d3d11);
+    for(std::size_t i{}; i != d3d11_proxy_count; ++i)
+      if(not d3d11_proxy_real_procs[i])
+        d3d11_proxy_real_procs[i] = reinterpret_cast<void *>(&d3d11_proxy_unresolved);
     }
 
   auto loader_paths() -> void
@@ -61,10 +49,10 @@ namespace edloader
     system_element.name = stralgo::stl::merge(std::wstring_view{sys}, L"\\d3d11.dll"sv);
     system_module = LoadLibraryW(system_element.name.c_str());
     system_element.module = system_module;
-    for(std::size_t i{}; i != export_count; ++i)
+    for(std::size_t i{}; i != d3d11_proxy_count; ++i)
       {
-      void * p{system_module ? reinterpret_cast<void *>(GetProcAddress(system_module, export_names[i])) : nullptr};
-      edvr_realProcs_d3d11[i] = p ? p : reinterpret_cast<void *>(&edvr_unresolved_d3d11);
+      void * p{system_module ? reinterpret_cast<void *>(GetProcAddress(system_module, d3d11_proxy_names[i])) : nullptr};
+      d3d11_proxy_real_procs[i] = p ? p : reinterpret_cast<void *>(&d3d11_proxy_unresolved);
       }
     if(system_module)
       {

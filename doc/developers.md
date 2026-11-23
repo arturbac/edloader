@@ -112,8 +112,8 @@ and copied as `EOSOVH-Win64-Shipping.dll` the known taker.
 
 ## Build
 
-On Linux with CMake, Ninja, LLVM (clang-cl, lld-link, llvm-lib, llvm-ml64, llvm-rc, llvm-mt) and Python 3; no
-MSVC compiler is run. The headers and libraries come from MSVC and the Windows SDK in one directory in clang's
+On Linux with CMake, Ninja, LLVM (clang-cl, lld-link, llvm-lib, llvm-ml64, llvm-rc, llvm-mt); no MSVC
+compiler is run. The headers and libraries come from MSVC and the Windows SDK in one directory in clang's
 `/winsysroot` layout (`VC/Tools/MSVC/<version>`, `Windows Kits/10`), e.g. the one msvc-wine installs; its path is
 `MSVC_ROOT` (a cache variable, or the environment variable of the same name).
 
@@ -149,7 +149,8 @@ The log: `log_line` takes a `std::format` format checked against its arguments w
 from edplugin_common.
 
 The dll is `<build dir>/d3d11.dll`. The export thunks come from the Windows d3d11 export names in
-`tools/d3d11_exports.txt`, turned into thunks by EDVR's generator (`tools/gen_exports.py`, MIT, unchanged).
+`tools/d3d11_exports.txt`, made at configure time by edplugin_common's `edplugin_common_proxy_exports`
+(`gen/d3d11_proxy.*`).
 Presets: `edloader-debug` and `edloader-release` build in `build/<preset>`; `kdev-edloader-debug` and
 `kdev-edloader-release` are the same without a build directory, for an IDE that chooses its own. The version in
 the log is taken from git at each build (`edplugin_common/cmake/version.cmake`): `vX.Y.Z` for a release (HEAD on its tag, no
@@ -179,7 +180,6 @@ without it. Environment: `EDWORLD_DIR` (an edworld checkout), `EDWORLD_BUILD` (i
 | `src/proxy.cc` | the exported D3D11CreateDevice and ...AndSwapChain (the call passed on to the next element), DllMain |
 | `CMakeLists.txt`, `test/CMakeLists.txt`, `CMakePresets.json` | the build (CPM: stralgo, small_vectors, through edplugin_common) |
 | `edplugin_common.commit` | the commit of the clone `edplugin_common/` (the toolchain, the version from git, the shared code) |
-| `tools/d3d11_exports.txt`, `tools/gen_exports_from_list.py` | the Windows d3d11 export names, and the run of EDVR's generator on them |
-| `tools/gen_exports.py`, `tools/EDVR-LICENSE.txt` | EDVR's export thunk generator (MIT) |
+| `tools/d3d11_exports.txt` | the Windows d3d11 export names, made into exports by `edplugin_common_proxy_exports` |
 | `tools/test.sh`, `test/fake_proxy.cc`, `test/swap_app.cc` | the test under wine (`fake_a`, `fake_b`, `fake_c`, `fake_swap` from one source) |
 | `NOTICE` | third-party work, file by file, with the licences |

@@ -135,7 +135,7 @@ namespace edloader
 using namespace edloader;
 using namespace std::string_view_literals;
 
-extern "C" HRESULT WINAPI edvr_impl_D3D11CreateDevice(
+extern "C" HRESULT WINAPI d3d11_proxy_impl_D3D11CreateDevice(
   IDXGIAdapter * adapter,
   D3D_DRIVER_TYPE driver_type,
   HMODULE software,
@@ -177,7 +177,7 @@ extern "C" HRESULT WINAPI edvr_impl_D3D11CreateDevice(
   return hr;
   }
 
-extern "C" HRESULT WINAPI edvr_impl_D3D11CreateDeviceAndSwapChain(
+extern "C" HRESULT WINAPI d3d11_proxy_impl_D3D11CreateDeviceAndSwapChain(
   IDXGIAdapter * adapter,
   D3D_DRIVER_TYPE driver_type,
   HMODULE software,

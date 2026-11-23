@@ -39,6 +39,5 @@ edworld_eht and EDHM (3Dmigoto) in the list, also behind ReShade 6.8.0.
 
 MIT licence (LICENSE). edloader builds on the work of the
 [EDVR unofficial patch](https://github.com/characterecho-sean/edvr-unofficial-patch) team (MIT): the proxy loading
-discipline and the export thunk generator (`tools/gen_exports.py`, unchanged). What comes from where, file by file,
-with the licence text: NOTICE. Elite Dangerous is a trademark of Frontier Developments plc; edloader is not
-affiliated with or endorsed by Frontier Developments.
+discipline. What comes from where, file by file, with the licence text: NOTICE. Elite Dangerous is a trademark of
+Frontier Developments plc; edloader is not affiliated with or endorsed by Frontier Developments.
