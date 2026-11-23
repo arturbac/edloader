@@ -151,11 +151,14 @@ from edplugin_common.
 The dll is `<build dir>/d3d11.dll`. The export thunks come from the Windows d3d11 export names in
 `tools/d3d11_exports.txt`, made at configure time by edplugin_common's `edplugin_common_proxy_exports`
 (`gen/d3d11_proxy.*`).
-Presets: `edloader-debug` and `edloader-release` build in `build/<preset>`; `kdev-edloader-debug` and
-`kdev-edloader-release` are the same without a build directory, for an IDE that chooses its own. The version in
-the log is taken from git at each build (`edplugin_common/cmake/version.cmake`): `vX.Y.Z` for a release (HEAD on its tag, no
-uncommitted changes), otherwise `<the last vX.Y.Z tag>-<HEAD's short hash>`, with `-dirty` when tracked files differ
-from HEAD (`v0.0.0-<hash>` before the first tag). `EDLOADER_TESTS` (on) builds the test's dlls.
+Presets: `edloader-debug` and `edloader-release` build in `build/<preset>`. The presets `kdev-edloader-debug` and
+`kdev-edloader-release` build without a build directory, for an IDE that chooses its own, with clang's GNU-style
+driver (`edplugin_common/cmake/clang-msvc-sdk.cmake`; clang, clang++, llvm-ar, llvm-ranlib) instead of clang-cl: an
+IDE that hands `compile_commands.json` to libclang (KDevelop) does not take clang-cl's options. Releases are built
+with clang-cl. The version in the log is taken from git at each build (`edplugin_common/cmake/version.cmake`):
+`vX.Y.Z` for a release (HEAD on its tag, no uncommitted changes), otherwise `<the last vX.Y.Z tag>-<HEAD's short
+hash>`, with `-dirty` when tracked files differ from HEAD (`v0.0.0-<hash>` before the first tag). `EDLOADER_TESTS`
+(on) builds the test's dlls.
 
 ## Test
 

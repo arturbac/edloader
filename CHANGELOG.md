@@ -8,6 +8,9 @@
   own after the version (`edplugin_common <hash>`).
 - The d3d11 exports are made at configure time by edplugin_common (`edplugin_common_proxy_exports`) instead of the
   copy of EDVR's generator: the build no longer needs Python 3. The dll's exports are unchanged.
+- The `kdev-*` presets build with clang's GNU-style driver (edplugin_common's `clang-msvc-sdk.cmake`) instead of
+  clang-cl, so an IDE whose code model is libclang (KDevelop) reads the compile commands; releases stay with
+  clang-cl. Warnings through `edplugin_common_warnings`, linker options with CMake's `LINKER:` prefix.
 
 ## 1.3.1 and earlier
 

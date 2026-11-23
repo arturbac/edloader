@@ -15,8 +15,11 @@ endif()
 
 project(edloader LANGUAGES CXX ASM_MASM)
 
-if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR NOT CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
-  message(FATAL_ERROR "edloader builds with clang-cl: configure with a preset or -DCMAKE_TOOLCHAIN_FILE=edplugin_common/cmake/clang-cl-msvc-sdk.cmake")
+# clang-cl, or clang's GNU-style driver targeting the MSVC ABI (the kdev-* presets, clang-msvc-sdk.cmake: an IDE's
+# code model)
+if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang"
+   OR NOT (CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC" OR CMAKE_CXX_SIMULATE_ID STREQUAL "MSVC"))
+  message(FATAL_ERROR "edloader builds with clang-cl (or clang for the MSVC ABI): configure with a preset or -DCMAKE_TOOLCHAIN_FILE=edplugin_common/cmake/clang-cl-msvc-sdk.cmake")
 endif()
 
 set(CMAKE_CXX_STANDARD 23)
@@ -35,9 +38,9 @@ edplugin_common_proxy_exports(d3d11 tools/d3d11_exports.txt WRAP D3D11CreateDevi
 add_library(edloader SHARED src/proxy.cc src/chain.cc src/takeovers.cc src/pe_read.cc src/log_paths.cc src/window.cc
                      "${d3d11_PROXY_ASM}" "${d3d11_PROXY_DEF}")
 target_compile_definitions(edloader PRIVATE _CRT_SECURE_NO_WARNINGS)
-target_compile_options(edloader PRIVATE $<$<COMPILE_LANGUAGE:CXX>:/W4>)
+edplugin_common_warnings(edloader)
 target_link_libraries(edloader PRIVATE kernel32 user32 edplugin_common::edplugin_common)
-target_link_options(edloader PRIVATE /DEBUG:FULL $<$<NOT:$<CONFIG:Debug>>:/OPT:REF /OPT:ICF>)
+target_link_options(edloader PRIVATE LINKER:/DEBUG:FULL $<$<NOT:$<CONFIG:Debug>>:LINKER:/OPT:REF,/OPT:ICF>)
 set_target_properties(edloader PROPERTIES
   PREFIX ""
   OUTPUT_NAME d3d11
