@@ -117,23 +117,42 @@ MSVC compiler is run. The headers and libraries come from MSVC and the Windows S
 `/winsysroot` layout (`VC/Tools/MSVC/<version>`, `Windows Kits/10`), e.g. the one msvc-wine installs; its path is
 `MSVC_ROOT` (a cache variable, or the environment variable of the same name).
 
+The shared library edplugin_common (the toolchain, CPM with stralgo and small_vectors, the version build steps, the
+SRW locks and the text helpers such as `wide(...)`) is a clone in `edplugin_common/`, ignored by git, on the commit
+the file `edplugin_common.commit` pins:
+
+```
+git clone https://github.com/arturbac/edplugin_common.git edplugin_common
+git -C edplugin_common checkout $(cat edplugin_common.commit)
+```
+
+Without it the configure stops with these two commands. At every build the clone is checked against
+`edplugin_common.commit`: another commit, changes in the clone, or the pinned commit missing from it (then `git -C
+edplugin_common fetch origin` first) are a warning, and an error in a release build (HEAD on a tag `vX.Y.Z`, a
+pre-release tag `vX.Y.Z-beta.N` too). The log says the clone's commit in a line of its own at the start
+(`edplugin_common <hash>`, `-dirty` for changes in it, ` (pinned <hash>)` when it is not on the pinned commit). A
+build directory made before the toolchain moved into the clone keeps the old path: configure it again with `--fresh`.
+A commit of the library is pushed to GitHub before a commit of this plugin that pins it.
+
 ```
 MSVC_ROOT=<dir> cmake --preset edloader-release
 cmake --build build/edloader-release
 ```
 
-stralgo (strings put together with its `merge`) and small_vectors come by CPM (`cmake/get_cpm.cmake`) from GitHub;
-with `-DCPM_SOURCE_CACHE=<a filled cache> -DFETCHCONTENT_FULLY_DISCONNECTED=ON` the configure needs no network.
+stralgo (strings put together with its `merge`) and small_vectors come by CPM (`edplugin_common/cmake/get_cpm.cmake`)
+from GitHub; with `-DCPM_SOURCE_CACHE=<a filled cache> -DFETCHCONTENT_FULLY_DISCONNECTED=ON` the configure needs no
+network.
 
 The log: `log_line` takes a `std::format` format checked against its arguments when compiled and hands it to
 `log_vline` (`std::vformat_to` into 2 KB on the stack, the line cut there, never thrown); a wide string goes in as
-`wide(...)` (UTF-8). SRW locks are held by `exclusive_lock_t` for a scope.
+`wide(...)` (UTF-8). SRW locks are held by `exclusive_lock_t` for a scope. `wide(...)` and `exclusive_lock_t` come
+from edplugin_common.
 
 The dll is `<build dir>/d3d11.dll`. The export thunks come from the Windows d3d11 export names in
 `tools/d3d11_exports.txt`, turned into thunks by EDVR's generator (`tools/gen_exports.py`, MIT, unchanged).
 Presets: `edloader-debug` and `edloader-release` build in `build/<preset>`; `kdev-edloader-debug` and
 `kdev-edloader-release` are the same without a build directory, for an IDE that chooses its own. The version in
-the log is taken from git at each build (`cmake/version.cmake`): `vX.Y.Z` for a release (HEAD on its tag, no
+the log is taken from git at each build (`edplugin_common/cmake/version.cmake`): `vX.Y.Z` for a release (HEAD on its tag, no
 uncommitted changes), otherwise `<the last vX.Y.Z tag>-<HEAD's short hash>`, with `-dirty` when tracked files differ
 from HEAD (`v0.0.0-<hash>` before the first tag). `EDLOADER_TESTS` (on) builds the test's dlls.
 
@@ -158,8 +177,8 @@ without it. Environment: `EDWORLD_DIR` (an edworld checkout), `EDWORLD_BUILD` (i
 | `src/pe_read.cc`, `src/pe_read.h` | reading modules: names, a jump at a function's start, a function's bytes on disk |
 | `src/window.cc` | the window that tells the player edloader stopped |
 | `src/proxy.cc` | the exported D3D11CreateDevice and ...AndSwapChain (the call passed on to the next element), DllMain |
-| `CMakeLists.txt`, `test/CMakeLists.txt`, `CMakePresets.json`, `cmake/get_cpm.cmake` | the build (CPM: stralgo, small_vectors) |
-| `cmake/clang-cl-msvc-sdk.cmake`, `cmake/version.cmake` | the toolchain (clang-cl with MSVC's and the Windows SDK's headers and libraries), the version from git (`vX.Y.Z`, `vX.Y.Z-<hash>`, `-dirty`) |
+| `CMakeLists.txt`, `test/CMakeLists.txt`, `CMakePresets.json` | the build (CPM: stralgo, small_vectors, through edplugin_common) |
+| `edplugin_common.commit` | the commit of the clone `edplugin_common/` (the toolchain, the version from git, the shared code) |
 | `tools/d3d11_exports.txt`, `tools/gen_exports_from_list.py` | the Windows d3d11 export names, and the run of EDVR's generator on them |
 | `tools/gen_exports.py`, `tools/EDVR-LICENSE.txt` | EDVR's export thunk generator (MIT) |
 | `tools/test.sh`, `test/fake_proxy.cc`, `test/swap_app.cc` | the test under wine (`fake_a`, `fake_b`, `fake_c`, `fake_swap` from one source) |
