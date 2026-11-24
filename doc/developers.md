@@ -67,10 +67,24 @@ by an inline hook on the system copy's function. edloader cannot prevent either,
   address, not from the copy of its bytes; the pointer of `FF 25` is read only from readable memory
   (`test/fake_jumper.cc`: a `FF 25` hook whose pointer lies far from the function, the log naming the dll).
 - Reading the file on disk checks every offset against the file (a cut or damaged dll is "not comparable").
-- edloader's own steps in the game's process (the start, the list, the checks at each device) each run under a
-  handler that catches hardware faults and C++ exceptions alike: the step is logged as `failed (exception ...)`
-  and skipped, the game goes on. The checks at a device run one thread at a time. An import put back on a page that
-  holds code keeps its execute right while it is written.
+- edloader's own steps in the game's process (the start, the list, the checks at each device) each run under
+  edplugin_common's guard (`run_guarded`), which catches hardware faults and C++ exceptions alike: the step is logged
+  as `failed (<what> at <module>+0x...)` and skipped, the game goes on, and the step runs again at its next time. The
+  list's loading is the one step under which another module's code runs (the dlls' `DllMain`): a fault from a dll's
+  `DllMain` skips the rest of the list; whether the loader lock `LoadLibrary` held is let go then is not checked
+  (held, it would hang the game at its next load of a module or start of a thread). The checks at a device
+  run one thread at a time.
+- The images edloader reads (the game exe's imports, edloader's own exports, every module's imports of the loader's
+  functions, the forwarders of kernel32 and kernelbase) go through edplugin_common's `pe_image`: every offset within
+  the image, values copied out, a module whose headers or imports are out of shape passed over with one line a
+  session (`<when>: <module> has headers out of shape; passed over`). A slot is written only when it lies in the
+  image's IAT, the 32 bytes of an own export only within a section of code; each write runs under the guard and the
+  page's rights are put back after it however it ends. Each module of a sweep is read under the guard of its own: one
+  unloaded meanwhile is passed over with its fault, said once a module a session, as are descriptors past
+  the import directory's size and descriptors without names. An import put back on a page that holds code keeps its execute
+  right while it is written. An import without its names (no `OriginalFirstThunk`) is not followed (before, the
+  game's was read from its slots). `test/fake_malformed.cc` (`FAKE_MALFORMED` `imports-out`, `header-noaccess`) is
+  such a module in the chain test.
 - On a takeover edloader stops: every call goes to the system copy, no element of the list is called. The line
   `accept_takeover = true` in `edloader.txt` (settings are read before any dll is loaded) keeps the list passed on,
   with the takeover logged. A plugin that takes over is then best first in the list: its own calls to `d3d11.dll`

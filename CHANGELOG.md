@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- edloader reads other modules' images through edplugin_common's `pe_image`: a module with headers or imports out of
+  shape (or unloaded while it is read) is passed over with a line, never read past its end; an import slot is written
+  only within the module's import table and edloader's own exports' bytes only within its code, each write under a
+  fault handler with the page's rights put back. A step that fails logs the fault's kind and, for a hardware fault, its place
+  (`failed (<what> at <module>+0x...)`, before `failed (exception 0x...)`).
 - `USERPROFILE`, `EDLOADER_DIR` and the path of edloader's dll are taken whole over 259 characters (edplugin_common's
   environment and paths; before, a longer value was taken for none and the root fell back). A module whose name
   cannot be told is `?` in the log also when its path cannot be read (before, an empty name). The variables

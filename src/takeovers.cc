@@ -142,30 +142,37 @@ namespace edloader
                                       {"D3D11CreateDeviceAndSwapChain", nullptr, nullptr, {}, nullptr}};
 
 
+  ///\brief whether an import names `dll` (the case aside)
+  [[nodiscard]]
+  auto import_of(edplugin_common::import_t const & i, std::string_view dll) noexcept -> bool
+    {
+    return i.dll.size() == dll.size() and _strnicmp(i.dll.data(), dll.data(), dll.size()) == 0;
+    }
+
+  ///\brief the game exe's import slots of the two device functions, read through edplugin_common's pe_image (every
+  /// offset within the image, a slot only in the image's IAT); an import without its names (no OriginalFirstThunk) is
+  /// not followed
   auto find_game_imports() -> void
     {
-    auto const base{reinterpret_cast<std::uint8_t *>(GetModuleHandleW(nullptr))};
-    auto const dos{reinterpret_cast<IMAGE_DOS_HEADER const *>(base)};
-    auto const nt{reinterpret_cast<IMAGE_NT_HEADERS const *>(base + dos->e_lfanew)};
-    IMAGE_DATA_DIRECTORY const & dir{nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT]};
-    if(dir.VirtualAddress == 0)
-      return;
-    for(auto desc{reinterpret_cast<IMAGE_IMPORT_DESCRIPTOR const *>(base + dir.VirtualAddress)}; desc->Name; ++desc)
+    std::optional<edplugin_common::pe_image_t> const image{edplugin_common::pe_image(GetModuleHandleW(nullptr))};
+    if(not image)
       {
-      if(_stricmp(reinterpret_cast<char const *>(base + desc->Name), "d3d11.dll") != 0)
-        continue;
-      auto names{reinterpret_cast<IMAGE_THUNK_DATA const *>(base + (desc->OriginalFirstThunk ? desc->OriginalFirstThunk : desc->FirstThunk))};
-      auto slots{reinterpret_cast<IMAGE_THUNK_DATA *>(base + desc->FirstThunk)};
-      for(; names->u1.AddressOfData; ++names, ++slots)
-        {
-        if(IMAGE_SNAP_BY_ORDINAL(names->u1.Ordinal))
-          continue;
-        auto const by_name{reinterpret_cast<IMAGE_IMPORT_BY_NAME const *>(base + names->u1.AddressOfData)};
-        for(watched_import_t & w: watched_imports)
-          if(std::strcmp(reinterpret_cast<char const *>(by_name->Name), w.name) == 0)
-            w.slot = reinterpret_cast<void **>(&slots->u1.Function);
-        }
+      log_line("the game's imports: its headers are out of shape; its import of d3d11 not watched");
+      return;
       }
+    edplugin_common::import_scan_t const scan{edplugin_common::for_each_import(
+      *image,
+      [](edplugin_common::import_t const & i) noexcept
+      {
+        if(not import_of(i, "d3d11.dll"sv) or i.function.empty() or not i.slot)
+          return;
+        for(watched_import_t & w: watched_imports)
+          if(i.function == std::string_view{w.name})
+            w.slot = i.slot;
+      })};
+    if(scan.malformed or scan.without_names != 0 or scan.slots_refused != 0)
+      log_line("the game's imports: {}{} descriptor(s) without names, {} slot(s) refused", scan.malformed ? "out of shape (read up to there), " : "",
+               scan.without_names, scan.slots_refused);
     }
 
   // ---- the loader's own functions: a dll that hooks them hands out itself for d3d11.dll ----
@@ -260,40 +267,12 @@ namespace edloader
   // leading elsewhere is logged and put back, unless the list accepts takeovers.
   constexpr char const * loader_functions[]{"LoadLibraryA", "LoadLibraryW", "LoadLibraryExA", "LoadLibraryExW", "GetProcAddress"};
 
-  ///\brief an export's address read from the module's export table in memory (no GetProcAddress, which may be hooked);
-  /// a forwarder ("KERNELBASE.LoadLibraryW") is followed once
-  auto export_address(HMODULE module, char const * name, int depth = 0) -> void *
+  ///\brief an export's address read from the module's export table in memory (no GetProcAddress, which may be hooked),
+  /// through edplugin_common's pe_image and export_address (forwarders followed twice at most); nullptr when none
+  auto export_address(HMODULE module, char const * name) noexcept -> void *
     {
-    if(not module or depth > 2)
-      return nullptr;
-    auto const base{reinterpret_cast<std::uint8_t const *>(module)};
-    auto const nt{reinterpret_cast<IMAGE_NT_HEADERS const *>(base + reinterpret_cast<IMAGE_DOS_HEADER const *>(base)->e_lfanew)};
-    IMAGE_DATA_DIRECTORY const & ed{nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT]};
-    if(ed.VirtualAddress == 0)
-      return nullptr;
-    auto const exp{reinterpret_cast<IMAGE_EXPORT_DIRECTORY const *>(base + ed.VirtualAddress)};
-    auto const names{reinterpret_cast<DWORD const *>(base + exp->AddressOfNames)};
-    auto const ords{reinterpret_cast<WORD const *>(base + exp->AddressOfNameOrdinals)};
-    auto const funcs{reinterpret_cast<DWORD const *>(base + exp->AddressOfFunctions)};
-    for(DWORD i{}; i != exp->NumberOfNames; ++i)
-      {
-      if(std::strcmp(reinterpret_cast<char const *>(base + names[i]), name) != 0)
-        continue;
-      DWORD const rva{funcs[ords[i]]};
-      if(rva >= ed.VirtualAddress and rva < ed.VirtualAddress + ed.Size)
-        {
-        std::string_view const forward{reinterpret_cast<char const *>(base + rva)};
-        auto const dot{forward.find('.')};
-        if(dot == std::string_view::npos)
-          return nullptr;
-        std::string dll{forward.substr(0, dot)};
-        dll += ".dll";
-        std::string const function{forward.substr(dot + 1)};
-        return export_address(GetModuleHandleA(dll.c_str()), function.c_str(), depth + 1);
-        }
-      return const_cast<std::uint8_t *>(base + rva);
-      }
-    return nullptr;
+    std::optional<edplugin_common::pe_image_t> const image{edplugin_common::pe_image(module)};
+    return image ? const_cast<void *>(edplugin_common::export_address(*image, name)) : nullptr;
     }
 
   // ---- edloader's own exports: what 3Dmigoto (EDHM) hooks ----
@@ -311,29 +290,48 @@ namespace edloader
 
   std::vector<own_export_t> own_exports;
 
+  ///\brief whether `bytes` bytes at `rva` lie in one section of the image that holds code: the only place a write of
+  /// edloader's own exports' bytes may go
+  [[nodiscard]]
+  auto in_code(edplugin_common::pe_image_t const & image, std::uint32_t rva, std::uint32_t bytes) noexcept -> bool
+    {
+    IMAGE_SECTION_HEADER const * const s{image.section_of(rva)};
+    if(not s or (s->Characteristics & IMAGE_SCN_MEM_EXECUTE) == 0)
+      return false;
+    std::uint64_t const size{s->Misc.VirtualSize != 0 ? s->Misc.VirtualSize : s->SizeOfRawData};
+    return edplugin_common::rva_in(rva - s->VirtualAddress, bytes, size) and image.span(rva, bytes).has_value();
+    }
+
   ///\brief every export of edloader's own table (the wrapped D3D11CreateDevice(AndSwapChain) among them, which the
   /// generated thunk list lacks), its first 32 bytes, before any dll of the list is loaded
   auto keep_own_exports() -> void
     {
-    auto const base{reinterpret_cast<std::uint8_t *>(self_module)};
-    auto const nt{reinterpret_cast<IMAGE_NT_HEADERS const *>(base + reinterpret_cast<IMAGE_DOS_HEADER const *>(base)->e_lfanew)};
-    IMAGE_DATA_DIRECTORY const & ed{nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT]};
-    if(ed.VirtualAddress == 0)
-      return;
-    auto const exp{reinterpret_cast<IMAGE_EXPORT_DIRECTORY const *>(base + ed.VirtualAddress)};
-    auto const names{reinterpret_cast<DWORD const *>(base + exp->AddressOfNames)};
-    auto const ords{reinterpret_cast<WORD const *>(base + exp->AddressOfNameOrdinals)};
-    auto const funcs{reinterpret_cast<DWORD const *>(base + exp->AddressOfFunctions)};
-    for(DWORD i{}; i != exp->NumberOfNames; ++i)
+    std::optional<edplugin_common::pe_image_t> const image{edplugin_common::pe_image(self_module)};
+    if(not image)
       {
-      DWORD const rva{funcs[ords[i]]};
-      if(rva >= ed.VirtualAddress and rva < ed.VirtualAddress + ed.Size)
-        continue;  // a forwarder: no code of ours
-      own_export_t e{reinterpret_cast<char const *>(base + names[i]), base + rva, {}};
-      std::memcpy(e.bytes, e.at, sizeof e.bytes);
-      own_exports.push_back(e);
+      log_line("own exports kept: edloader's own headers out of shape; none kept");
+      return;
       }
-    log_line("own exports kept: {}, their first {} bytes", own_exports.size(), sizeof(own_export_t::bytes));
+    int outside{};
+    bool const whole{edplugin_common::for_each_export(*image,
+                                                       [&](edplugin_common::export_t const & e)
+                                                       {
+                                                         if(e.forwarder)
+                                                           return true;  // a forwarder: no code of ours
+                                                         if(not in_code(*image, e.rva, sizeof(own_export_t::bytes)))
+                                                           {
+                                                           ++outside;
+                                                           return true;
+                                                           }
+                                                         own_export_t x{std::string{e.name}, const_cast<std::uint8_t *>(image->base()) + e.rva, {}};
+                                                         std::memcpy(x.bytes, x.at, sizeof x.bytes);
+                                                         own_exports.push_back(x);
+                                                         return true;
+                                                       })};
+    log_line("own exports kept: {}, their first {} bytes{}{}", own_exports.size(), sizeof(own_export_t::bytes),
+             outside != 0 ? "; not kept (not wholly in a section of code): " : "", outside != 0 ? std::to_string(outside) : std::string{});
+    if(not whole)
+      log_line("own exports kept: edloader's export directory out of shape; read up to there");
     }
 
   ///\brief puts back the first bytes of edloader's exports a dll overwrote (3Dmigoto's HookD3D11 from its DllMain), naming
@@ -347,11 +345,20 @@ namespace edloader
       DWORD old{};
       if(VirtualProtect(e.at, sizeof e.bytes, PAGE_EXECUTE_READWRITE, &old))
         {
-        std::memcpy(e.at, e.bytes, sizeof e.bytes);
+        // the write under the guard, the page's rights put back after it however it ends
+        edplugin_common::fault_t fault;
+        bool const written{edplugin_common::run_guarded([&] { std::memcpy(e.at, e.bytes, sizeof e.bytes); }, fault)};
         VirtualProtect(e.at, sizeof e.bytes, old, &old);
         FlushInstructionCache(GetCurrentProcess(), e.at, sizeof e.bytes);
-        log_line("{}: {} hooked edloader's own {} inline; put back (it stays in the list as any other element)", when, who,
-                 e.name);
+        if(written)
+          log_line("{}: {} hooked edloader's own {} inline; put back (it stays in the list as any other element)", when, who,
+                   e.name);
+        else
+          {
+          char text[320];
+          log_line("{}: {} hooked edloader's own {} inline; could not be put back ({})", when, who, e.name,
+                   edplugin_common::fault_line(fault, text));
+          }
         }
       else
         log_line("{}: {} hooked edloader's own {} inline; could not be put back (error {})", when, who, e.name,
@@ -368,6 +375,98 @@ namespace edloader
       return PAGE_READWRITE;
     DWORD const execute{PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY};
     return (info.Protect & execute) ? PAGE_EXECUTE_READWRITE : PAGE_READWRITE;
+    }
+
+  ///\brief a module passed over (wholly or in part) for its headers or imports, said once a module and reason a
+  /// session; `detail` (a fault's line) is said with it, not part of the reason
+  auto out_of_shape_once(char const * when, std::wstring const & module, char const * why, std::string_view detail = {})
+    -> void
+    {
+    static std::vector<std::string> told;
+    std::string const key{stralgo::stl::merge(narrow(module), "|"sv, std::string_view{why})};
+    for(std::string const & t: told)
+      if(_stricmp(t.c_str(), key.c_str()) == 0)
+        return;
+    told.push_back(key);
+    log_line("{}: {} {}{}; passed over", when, narrow(module), why, detail);
+    }
+
+  ///\brief one module's imports of the loader's functions (sweep_loader_imports), read through edplugin_common's
+  /// pe_image: every offset within the image, a slot written only when it is in the image's IAT, the write under the
+  /// guard and the page's rights put back after it however it ends
+  auto sweep_module(char const * when, MODULEENTRY32W const & m, void * const (&real)[std::size(loader_functions)],
+                    void * const (&stub)[std::size(loader_functions)], std::uint32_t (&known_now)[std::size(known_takers)]) -> void
+    {
+    std::optional<edplugin_common::pe_image_t> const image{edplugin_common::pe_image(m.hModule, m.modBaseSize)};
+    if(not image)
+      {
+      out_of_shape_once(when, m.szModule, "has headers out of shape");
+      return;
+      }
+    std::vector<edplugin_common::import_t> loader_imports;
+    edplugin_common::import_scan_t const scan{edplugin_common::for_each_import(*image,
+                                                                              [&](edplugin_common::import_t const & i)
+                                                                              {
+                                                                                for(char const * const f: loader_functions)
+                                                                                  if(i.function == std::string_view{f})
+                                                                                    {
+                                                                                    loader_imports.push_back(i);
+                                                                                    return;
+                                                                                    }
+                                                                              })};
+    if(scan.malformed)
+      out_of_shape_once(when, m.szModule, "has its imports out of shape (read up to there)");
+    if(scan.past_size)
+      out_of_shape_once(when, m.szModule, "has import descriptors past its directory's size (read on)");
+    if(scan.without_names != 0)
+      out_of_shape_once(when, m.szModule, "has import descriptors without names (those not checked)");
+    for(edplugin_common::import_t const & imp: loader_imports)
+      {
+      std::size_t i{};
+      while(imp.function != std::string_view{loader_functions[i]})
+        ++i;
+      if(not real[i])
+        continue;
+      if(not imp.slot)
+        {
+        out_of_shape_once(when, m.szModule, "has an import slot of the loader's functions outside its IAT");
+        continue;
+        }
+      void * const now{*imp.slot};
+      if(now == real[i] or now == stub[i])
+        continue;
+      std::wstring const to{module_name_of(now)};
+      if(_wcsicmp(to.c_str(), m.szModule) == 0)
+        continue;  // the module's own wrapper of its own import: not a takeover of others
+      if(known_taker_t const * const k{known_taker(to)})
+        {
+        ++known_now[k - known_takers];
+        continue;  // a known taker's: left as it is, told in short below
+        }
+      std::string const what{stralgo::stl::merge(std::string_view{when}, ": "sv, narrow(m.szModule), "'s import of "sv, imp.function,
+                                                 " leads to "sv, narrow(to))};
+      if(accept_takeover)
+        {
+        log_line("TAKEOVER: {}; accepted, left as it is", what);
+        continue;
+        }
+      DWORD old{};
+      if(VirtualProtect(imp.slot, sizeof(void *), writable_like(imp.slot), &old))
+        {
+        edplugin_common::fault_t fault;
+        bool const written{edplugin_common::run_guarded([&] { *imp.slot = real[i]; }, fault)};
+        VirtualProtect(imp.slot, sizeof(void *), old, &old);
+        if(written)
+          log_line("TAKEOVER: {}; put back to the real {}", what, imp.function);
+        else
+          {
+          char text[320];
+          log_line("TAKEOVER: {}; could not be put back ({})", what, edplugin_common::fault_line(fault, text));
+          }
+        }
+      else
+        log_line("TAKEOVER: {}; could not be put back (error {})", what, GetLastError());
+      }
     }
 
   ///\brief every module's imports of the loader's functions: logged when they lead past kernel32/kernelbase, put back
@@ -392,56 +491,13 @@ namespace edloader
     m.dwSize = sizeof m;
     for(BOOL ok{Module32FirstW(snap, &m)}; ok; ok = Module32NextW(snap, &m))
       {
-      auto const base{m.modBaseAddr};
-      auto const nt{reinterpret_cast<IMAGE_NT_HEADERS const *>(base + reinterpret_cast<IMAGE_DOS_HEADER const *>(base)->e_lfanew)};
-      IMAGE_DATA_DIRECTORY const & dir{nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT]};
-      if(dir.VirtualAddress == 0)
-        continue;
-      for(auto desc{reinterpret_cast<IMAGE_IMPORT_DESCRIPTOR const *>(base + dir.VirtualAddress)}; desc->Name; ++desc)
+      // each module read under the guard: one unloaded meanwhile faults, and is passed over
+      edplugin_common::fault_t fault;
+      if(not edplugin_common::run_guarded([&] { sweep_module(when, m, real, stub, known_now); }, fault))
         {
-        if(not desc->OriginalFirstThunk)
-          continue;  // names gone: nothing to tell the functions by
-        auto names{reinterpret_cast<IMAGE_THUNK_DATA const *>(base + desc->OriginalFirstThunk)};
-        auto slots{reinterpret_cast<IMAGE_THUNK_DATA *>(base + desc->FirstThunk)};
-        for(; names->u1.AddressOfData; ++names, ++slots)
-          {
-          if(IMAGE_SNAP_BY_ORDINAL(names->u1.Ordinal))
-            continue;
-          char const * const fn{reinterpret_cast<IMAGE_IMPORT_BY_NAME const *>(base + names->u1.AddressOfData)->Name};
-          for(std::size_t i{}; i != std::size(loader_functions); ++i)
-            {
-            if(std::strcmp(fn, loader_functions[i]) != 0 or not real[i])
-              continue;
-            void * const now{reinterpret_cast<void *>(slots->u1.Function)};
-            if(now == real[i] or now == stub[i])
-              break;
-            std::wstring const to{module_name_of(now)};
-            if(_wcsicmp(to.c_str(), m.szModule) == 0)
-              break;  // the module's own wrapper of its own import: not a takeover of others
-            if(known_taker_t const * const k{known_taker(to)})
-              {
-              ++known_now[k - known_takers];
-              break;  // a known taker's: left as it is, told in short below
-              }
-            std::string const what{stralgo::stl::merge(std::string_view{when}, ": "sv, narrow(m.szModule), "'s import of "sv, std::string_view{fn},
-                                                       " leads to "sv, narrow(to))};
-            if(accept_takeover)
-              {
-              log_line("TAKEOVER: {}; accepted, left as it is", what);
-              break;
-              }
-            DWORD old{};
-            if(VirtualProtect(&slots->u1.Function, sizeof(void *), writable_like(&slots->u1.Function), &old))
-              {
-              slots->u1.Function = reinterpret_cast<ULONG_PTR>(real[i]);
-              VirtualProtect(&slots->u1.Function, sizeof(void *), old, &old);
-              log_line("TAKEOVER: {}; put back to the real {}", what, fn);
-              }
-            else
-              log_line("TAKEOVER: {}; could not be put back (error {})", what, GetLastError());
-            break;
-            }
-          }
+        char text[320];
+        out_of_shape_once(when, m.szModule, "faulted while its imports were read: ",
+                          edplugin_common::fault_line(fault, text));
         }
       }
     CloseHandle(snap);

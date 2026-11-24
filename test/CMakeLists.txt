@@ -2,7 +2,9 @@
 # (the same with D3D11CreateDeviceAndSwapChain too, for swap_app, a game asking for that call),
 # fake_intruder (takes the game's import in its DllMain), fake_hooker (hooks edloader's own export, as 3Dmigoto does),
 # fake_reshade (exports ReShadeRegisterAddon and hooks the system d3d11 inline through a stub of no module, as ReShade does),
-# fake_jumper (hooks the system d3d11 inline with jmp [rip+rel32], rel32 far from 0, through a pointer near the function).
+# fake_jumper (hooks the system d3d11 inline with jmp [rip+rel32], rel32 far from 0, through a pointer near the function),
+# fake_malformed (a plain plugin whose own image is out of shape while loaded: FAKE_MALFORMED imports-out or
+# header-noaccess).
 set(test_out "${CMAKE_BINARY_DIR}/test")
 
 function(edloader_fake name source)
@@ -30,6 +32,7 @@ edloader_fake(fake_intruder fake_intruder.cc)
 edloader_fake(fake_hooker fake_hooker.cc)
 edloader_fake(fake_reshade fake_reshade.cc)
 edloader_fake(fake_jumper fake_jumper.cc)
+edloader_fake(fake_malformed fake_malformed.cc)
 
 add_executable(swap_app swap_app.cc)
 target_compile_definitions(swap_app PRIVATE WIN32_LEAN_AND_MEAN)

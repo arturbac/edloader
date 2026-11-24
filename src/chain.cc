@@ -342,21 +342,20 @@ namespace edloader
 
   // ---- edloader's own work in the game's process: a fault or an exception there is logged and that step skipped ----
   // Reading other modules' headers, import tables and memory (a module unloaded meanwhile, a page gone) and the
-  // strings of the checks (out of memory) must never end the game. The steps below are not noexcept, so a C++
-  // exception reaches the handler; it catches hardware faults and C++ exceptions alike.
+  // strings of the checks (out of memory) must never end the game. Each step runs under edplugin_common's guard
+  // (run_guarded): hardware faults and C++ exceptions alike, logged with their kind (a fault with its place); no step
+  // is turned off, each runs again at its next time. "the list" loads the list's dlls (their DllMain) under it too: the
+  // one place a module not edloader's runs under its guard, so a fault that reaches it from a dll's DllMain skips the
+  // rest of the list's loading instead of ending the game; whether the system's loader lock LoadLibrary held is let go
+  // then is not checked (held, it would hang the game at its next load of a module or start of a thread).
   auto guarded(char const * what, void (*step)(char const *), char const * when) noexcept -> bool
     {
-    DWORD code{};
-    __try
-      {
-      step(when);
+    edplugin_common::fault_t fault;
+    if(edplugin_common::run_guarded([&] { step(when); }, fault))
       return true;
-      }
-    __except(code = GetExceptionCode(), EXCEPTION_EXECUTE_HANDLER)
-      {
-      log_line("{}: failed (exception 0x{:08X}{}); skipped", what, as_unsigned(code), code == 0xE06D7363u ? ", a C++ exception" : "");
-      return false;
-      }
+    char text[320];
+    log_line("{}: failed ({}); skipped", what, edplugin_common::fault_line(fault, text));
+    return false;
     }
 
   // the checks at a device change edloader's records of the last state: one thread at a time

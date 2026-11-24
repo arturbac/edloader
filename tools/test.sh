@@ -22,7 +22,8 @@ EDW=$EDWORLD_DIR
 EDWB=$EDWORLD_BUILD
 for f in "$BUILD/d3d11.dll" "$BUILD/test/fake_a.dll" "$BUILD/test/fake_b.dll" "$BUILD/test/fake_c.dll" "$BUILD/test/fake_intruder.dll" \
          "$BUILD/test/fake_swap.dll" "$BUILD/test/swap_app.exe" \
-         "$BUILD/test/fake_hooker.dll" "$BUILD/test/fake_reshade.dll" "$BUILD/test/fake_jumper.dll" "$EDWB/test/edworld/test_app.exe" "$EDWB/edworld/edworld.dll" \
+         "$BUILD/test/fake_hooker.dll" "$BUILD/test/fake_reshade.dll" "$BUILD/test/fake_jumper.dll" "$BUILD/test/fake_malformed.dll" \
+         "$EDWB/test/edworld/test_app.exe" "$EDWB/edworld/edworld.dll" \
          "$EDWB/test/test_foreign.dll"; do
   [[ -f $f ]] || { echo "$0: no $f (build first)" >&2; exit 1; }
 done
@@ -159,8 +160,34 @@ set -e
 echo "--- edloader.log, jumper"; cat "$ROOT/logs/edloader.log"
 grep -q "the system d3d11's D3D11CreateDevice was hooked inline (a jump to fake_jumper.dll); accepted (accept_takeover = true)" \
   "$ROOT/logs/edloader.log" || fail "a relative jump read from the function's address"
-! grep -q "failed (exception" "$ROOT/logs/edloader.log" || fail "a step of edloader failed"
+! grep -q ": failed (" "$ROOT/logs/edloader.log" || fail "a step of edloader failed"
 [[ $(tr '\n' ' ' < order.txt) == "fake_a jumper "* ]] || fail "order with a jumper '$(tr '\n' ' ' < order.txt)'"
+# a module whose image is out of shape while loaded (its imports past its end, its headers' page without rights):
+# edloader's scans pass it over with a line once, no step fails, the process ends by itself and the chain works
+cp "$BUILD/test/fake_malformed.dll" "$ROOT/plugins/"
+for mode in imports-out header-noaccess; do
+  : > order.txt
+  : > malformed.txt
+  : > "$ROOT/logs/edloader.log"
+  printf '+fake_malformed.dll\nfake_a.dll\n' > "$ROOT/edloader.txt"
+  set +e
+  wine_common_exec FAKE_MALFORMED=$mode -- test_app.exe > "test_app_malformed_$mode.out"
+  r=$?
+  set -e
+  echo "--- edloader.log, malformed $mode (test_app exit $r)"; cat "$ROOT/logs/edloader.log"
+  [[ $(cat malformed.txt) == "$mode" ]] || fail "malformed $mode: the fake did not change its image"
+  case $mode in
+    imports-out) want="after the list: fake_malformed.dll has its imports out of shape (read up to there); passed over" ;;
+    header-noaccess) want="after the list: fake_malformed.dll has headers out of shape; passed over" ;;
+  esac
+  grep -qF -- "$want" "$ROOT/logs/edloader.log" || fail "malformed $mode: no '$want'"
+  # said once a session, whatever the number of sweeps
+  n=$(grep -c -- "fake_malformed.dll has " "$ROOT/logs/edloader.log")
+  (( n == 1 )) || fail "malformed $mode: the line said $n times"
+  ! grep -q ": failed (" "$ROOT/logs/edloader.log" || fail "malformed $mode: a step of edloader failed"
+  (( r == 0 || r == 1 )) || fail "malformed $mode: test_app ended with $r"
+  [[ $(tr '\n' ' ' < order.txt) == "fake_a "* ]] || fail "malformed $mode: order '$(tr '\n' ' ' < order.txt)'"
+done
 # the marks: ^ first, ! last, ^! one dll at both ends; a mark wherever its line stands
 marked() {  # <label> <list text>: one run of test_app with that list
   : > order.txt
