@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- A `+` with no dll after it is a mistake in the list (`MISCONFIGURATION: line N '+': a mark with no dll after it`),
+  as `^` or `!` alone are; before, the line was taken for a dll named by the empty name, could not be loaded and was
+  left out.
 - edloader reads other modules' images through edplugin_common's `pe_image`: a module with headers or imports out of
   shape (or unloaded while it is read) is passed over with a line, never read past its end; an import slot is written
   only within the module's import table and edloader's own exports' bytes only within its code, each write under a

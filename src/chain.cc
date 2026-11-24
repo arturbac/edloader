@@ -130,7 +130,7 @@ namespace edloader
       return "'+' (loaded, not chained) together with '^' or '!' (a place in the chain)";
     else if(not marks.empty())
       return "marks other than ^ (first), ! (last) or ^! (both)";
-    if(text.empty() and (l.first or l.last))
+    if(text.empty() and not marks.empty())  // '+' too: a line that names no dll is no line of the list
       return "a mark with no dll after it";
     return nullptr;
     }

@@ -267,6 +267,7 @@ misconfigured bad_marks '!^fake_a.dll\n' "line 1 '!^fake_a.dll': marks other tha
 misconfigured apart '^ !fake_a.dll\n' "line 1 '^ !fake_a.dll': marks other than"
 misconfigured plus_plus '++fake_a.dll\n' "line 1 '++fake_a.dll': marks other than"
 misconfigured no_name 'fake_a.dll\n^! # nothing after it\n' "line 2 '^!': a mark with no dll after it"
+misconfigured plain_no_name 'fake_a.dll\n+   ; nothing after it\n' "line 2 '+': a mark with no dll after it"
 misconfigured accepted 'accept_takeover = true\n^fake_a.dll\n^fake_b.dll\n' "ask for the first place"
 log_lacks "TAKEOVER accepted" "accept_takeover with the list's errors"
 # one dll by two paths (here a link to it): found when the second is loaded, the dlls before it loaded, none called

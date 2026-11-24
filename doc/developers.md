@@ -18,7 +18,7 @@ How edloader chains d3d11 proxies, what a plugin can rely on, and how edloader i
   chain whatever its line; the other elements keep the order of their lines, and the dlls are loaded in the order of
   the lines either way. The marks are written together before the name (`^!x.dll`, `^! x.dll`; `^ !x.dll` is
   an unknown mark). Every line is read and checked before any dll is loaded: two marks for one place, `+` with a
-  mark, an unknown mark, a mark with no name, or one dll on two lines of the chain (by its full path, also a dll
+  mark, an unknown mark, a mark with no name (`+` too), or one dll on two lines of the chain (by its full path, also a dll
   that is not a proxy or cannot be loaded) is a `MISCONFIGURATION:` line each, and edloader stops as at a takeover, but loads no dll of the list and
   `accept_takeover` does not lift it (`misconfigured`). One dll by two paths (another drive, a link) is found after it
   is loaded, by its module: edloader stops there, the dlls before it loaded. One dll on two lines of which one

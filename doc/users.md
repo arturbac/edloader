@@ -37,7 +37,7 @@ page, with an example list, `edloader.txt.example`.
    own calls), `!` last (right before the system d3d11), `^!` both (one dll at both ends). A mod's own documentation
    says if it needs one; the others keep the order of their lines. Spaces after the mark are fine (`^! some_mod.dll`).
    One mod can have the first place and one the last: two mods asking for the same place, `+` together with `^` or
-   `!`, other marks (`!^`, `^^`, `++`, `^ !` with a space between), a mark with no name, or one mod on two lines
+   `!`, other marks (`!^`, `^^`, `++`, `^ !` with a space between), a mark with no name (`+` too), or one mod on two lines
    without `+` (even a dll that is not a d3d11 mod) is a mistake in the list. edloader then loads none of the list
    and passes every call to the system d3d11, so the game runs without mods, and the log names each mistake
    (`MISCONFIGURATION: ...`). One mod named by two different paths (another drive, a link) is found only when it is
