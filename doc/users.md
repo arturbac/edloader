@@ -8,7 +8,7 @@ not needed for EDHM or EDVR.
 ## Install
 
 edloader's `d3d11.dll` is in `edloader-<version>.zip` on the [Releases](https://github.com/arturbac/edloader/releases)
-page, with an example list, `edloader.txt.example`.
+page.
 
 1. Find the game's folder: `Products/elite-dangerous-odyssey-64`, the one with `EliteDangerous64.exe`.
 2. Find edloader's folder: `edloader` in your user folder, the same one the game runs under.
