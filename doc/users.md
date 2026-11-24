@@ -176,7 +176,8 @@ misplaced mod would pass unnoticed too. edworld from 1.2.0-beta.13 needs nothing
 
 ## Check that it works
 
-Open `edloader\logs\edloader.log` after starting the game. It lists the mods it loaded (`chain[0] = ...`) and
+Open `edloader\logs\edloader.log` after starting the game (it holds this game session; the last ones are in
+`edloader\logs\edloader\`, named after the time each ended, UTC). It lists the mods it loaded (`chain[0] = ...`) and
 `chain: game -> N proxy(ies) -> system d3d11.dll`. A mod it could not load is named with `cannot load`; a dll that
 is not a d3d11 mod with `not a d3d11 proxy`. Without `edloader.txt` the log says `no ...edloader.txt` and the game
 runs without any mod. A mistake in the list's marks is a `MISCONFIGURATION:` line each, then `edloader stops`: fix

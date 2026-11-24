@@ -6,6 +6,7 @@
 #include <d3d11.h>
 
 #include <edplugin_common/core/lock.h>
+#include <edplugin_common/log/log.h>
 #include <edplugin_common/text/format.h>
 
 #include <cstdio>
@@ -41,23 +42,23 @@ namespace edloader
   extern std::wstring root_dir;
   extern element_t system_element;
   extern std::vector<element_t> chain;
-  extern std::FILE * log_file;
 
   using edplugin_common::as_unsigned;
   using edplugin_common::exclusive_lock_t;
   using edplugin_common::shared_lock_t;
   using edplugin_common::wide;
   using edplugin_common::wide_t;
-
-  ///\brief one line, time-stamped (UTC), cut to 2 KB, written at once under the log's lock; a line that cannot be made
-  /// is logged as such (never thrown). stop: a line of what stopped edloader, kept (without its time) for the window
-  /// that tells the player, also when the log could not be opened
-  auto log_vline(std::string_view fmt, std::format_args args, bool stop = false) noexcept -> void;
+  // the log is edplugin_common's: logs\edloader.log, the last session's set aside in the folder edloader beside it
+  using edplugin_common::log_is_open;
+  using edplugin_common::log_line;
+  using edplugin_common::log_line_to;
+  using edplugin_common::log_open;
+  using edplugin_common::log_vline;
 
   constexpr std::size_t stop_line_count{32};
   constexpr std::size_t stop_line_size{2048};
 
-  ///\brief the lines of what stopped edloader: copied under the log's lock (nothing else done there); more: lines that
+  ///\brief the lines of what stopped edloader: copied under their own lock (nothing else done there); more: lines that
   /// did not fit
   struct stop_lines_t
     {
@@ -66,6 +67,9 @@ namespace edloader
     bool more;
     };
 
+  ///\brief the log's tap of a line of what stopped edloader: its text (without its time) kept for the window that
+  /// tells the player, also when the log could not be opened
+  auto keep_stop_line(std::string_view text) noexcept -> void;
   auto copy_stop_lines(stop_lines_t & out) noexcept -> void;
   ///\brief the lines kept so far forgotten: a takeover's advice before the list said accept_takeover = true
   auto forget_stop_lines() noexcept -> void;
@@ -74,14 +78,7 @@ namespace edloader
   template<typename... args_t>
   auto log_stop_line(std::format_string<args_t...> fmt, args_t &&... args) noexcept -> void
     {
-    log_vline(fmt.get(), std::make_format_args(args...), true);
-    }
-
-  ///\brief log_vline with the format checked against its arguments when compiled
-  template<typename... args_t>
-  auto log_line(std::format_string<args_t...> fmt, args_t &&... args) noexcept -> void
-    {
-    log_vline(fmt.get(), std::make_format_args(args...));
+    log_vline(fmt.get(), std::make_format_args(args...), keep_stop_line);
     }
   auto make_dirs(std::wstring const & root) -> void;
   ///\brief the one place: %USERPROFILE%\edloader, inside the wine prefix, which a verification of the game's files

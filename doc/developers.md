@@ -108,7 +108,10 @@ and copied as `EOSOVH-Win64-Shipping.dll` the known taker.
 - To chain on, the plugin asks for `d3d11.dll` by name, as above. A plugin that wants to stay usable without
   edloader names that dll in its settings, as edworld's `next` does.
 - edloader makes `edloader`, `config`, `logs` and `plugins` when they are missing, and writes
-  `logs\edloader.log` (UTC times, one line per event).
+  `logs\edloader.log` (UTC times, one line per event), one game session: at the start the last session's log is
+  moved to `logs\edloader\edloader.<UTC of its last write>.log`. With `EDLOADER_DIR` (the lab) the line saying so
+  goes to the standard `%USERPROFILE%\edloader\logs\edloader.log`, which the next ordinary start then moves aside as
+  a session of its own.
 
 ## Build
 
@@ -143,10 +146,13 @@ stralgo (strings put together with its `merge`) and small_vectors come by CPM (`
 from GitHub; with `-DCPM_SOURCE_CACHE=<a filled cache> -DFETCHCONTENT_FULLY_DISCONNECTED=ON` the configure needs no
 network.
 
-The log: `log_line` takes a `std::format` format checked against its arguments when compiled and hands it to
-`log_vline` (`std::vformat_to` into 2 KB on the stack, the line cut there, never thrown); a wide string goes in as
-`wide(...)` (UTF-8). SRW locks are held by `exclusive_lock_t` for a scope. `wide(...)` and `exclusive_lock_t` come
-from edplugin_common.
+The log is edplugin_common's `log` module (using-declarations in `runtime.h`), written with Windows' own calls:
+`log_line` takes a `std::format` format checked against its arguments when compiled and hands it to `log_vline`
+(`std::vformat_to` into 2 KB on the stack, the line cut there, never thrown); a wide string goes in as `wide(...)`
+(UTF-8). `log_stop_line` passes the library a tap, `keep_stop_line`, which keeps the line's text for the window under
+a lock of its own, also when the log could not be opened; the window says so by `log_is_open()`. `find_root_dir`'s
+line goes by `log_line_to`. SRW locks are held by `exclusive_lock_t` for a scope. `wide(...)` and `exclusive_lock_t`
+come from edplugin_common.
 
 The dll is `<build dir>/d3d11.dll`. The export thunks come from the Windows d3d11 export names in
 `tools/d3d11_exports.txt`, made at configure time by edplugin_common's `edplugin_common_proxy_exports`

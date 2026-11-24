@@ -64,6 +64,19 @@ PROFILE=$(wine_common_exec -- cmd /c echo %USERPROFILE% 2>/dev/null | tr -d '\r'
 DEFAULT_LOG=$(wine_common_exec -- winepath -u "$PROFILE\\edloader\\logs\\edloader.log" 2>/dev/null) \
   || fail "the default log's path not made"
 grep -qF "EDLOADER_DIR=$EDLOADER_DIR:" "$DEFAULT_LOG" || fail "no EDLOADER_DIR line in $DEFAULT_LOG"
+# a second start: each last session's log set aside in a folder of its name under logs\ (edplugin_common's log)
+: > order.txt
+set +e
+wine_common_exec -- test_app.exe > test_app_again.out
+set -e
+grep -q "PASSED" test_app_again.out || fail "edworld checks through the chain, the second start"
+set_aside() { find "$ROOT/logs/$1" -maxdepth 1 -type f -regex ".*/$1\.[0-9]\{8\}T[0-9]\{6\}Z\.log" 2> /dev/null; }
+LAST=$(set_aside edloader)
+[[ $(wc -l <<< "$LAST") == 1 && -f $LAST ]] || fail "edloader's last session not set aside once in logs/edloader ($LAST)"
+grep -q "hr 0x00000000 through 3 element(s)" "$LAST" || fail "the first session's lines not in $LAST"
+[[ $(grep -c " root: " "$ROOT/logs/edloader.log") == 1 ]] || fail "edloader.log not this session's alone"
+[[ -n $(set_aside edworld) ]] || fail "edworld's last session not set aside in logs/edworld"
+echo "--- set aside: $(basename "$LAST"), $(set_aside edworld | xargs -r -n1 basename | tr '\n' ' ')"
 # a dll that takes the game's import in its DllMain: edloader says so and stops, unless the list accepts it
 cp "$BUILD/test/fake_intruder.dll" "$ROOT/plugins/"
 for accept in no yes; do

@@ -379,7 +379,7 @@ namespace edloader
     {
     root_dir = find_root_dir();
     make_dirs(root_dir);
-    log_file = _wfopen(stralgo::stl::merge(root_dir, L"\\logs\\edloader.log"sv).c_str(), L"ab");
+    log_open(stralgo::stl::merge(root_dir, L"\\logs"sv), L"edloader");  // the last session's log set aside in logs\edloader
     log_line("edloader {}", EDLOADER_VERSION);
     log_line("edplugin_common {}", EDPLUGIN_COMMON_COMMIT);
     log_line("root: {}", wide(root_dir));

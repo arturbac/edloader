@@ -96,7 +96,7 @@ namespace edloader
           window_unix = true;
           HeapFree(GetProcessHeap(), 0, name);
           }
-      if(not log_file)
+      if(not log_is_open())
         out.add(L"The log could not be opened.\r\n"sv);
       out.add(L"\r\n"sv);
       for(std::size_t i{}; i != window_lines.count; ++i)

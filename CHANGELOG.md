@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- The log is edplugin_common's and holds one game session: at the start the last session's `edloader.log` is moved to
+  `logs\edloader\edloader.<UTC>.log` (before, every session was appended to one file). It is written with Windows'
+  own calls instead of a CRT stream: a thread killed at the game's exit in the middle of a write leaves no stream half
+  done for the CRT to close (what ended edworld with 0xC0000409 before 2026-11-17).
 - Built with edplugin_common 1.0.0, the library the plugins share: a clone in the plugin's directory on the commit
   `edplugin_common.commit` pins. Without the clone the build stops with the commands that make it; another commit or
   changes in it are a warning, and an error in a release build. The log says the library's commit in a line of its
