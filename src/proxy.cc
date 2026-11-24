@@ -169,7 +169,7 @@ extern "C" HRESULT WINAPI d3d11_proxy_impl_D3D11CreateDevice(
     log_line("D3D11CreateDevice: hr 0x{:08X} through {} element(s){}, device {}; called from {}, passed to {}",
              static_cast<unsigned long>(hr), stopped ? std::size_t{} : chain.size(), stopped ? stop_reason() : "",
              device == nullptr ? "not asked" : SUCCEEDED(hr) and *device ? "made" : "asked, none made",
-             wide(module_of(_ReturnAddress())), wide(target_name(at)));
+             wide(module_name_of(_ReturnAddress())), wide(target_name(at)));
     report_shortcuts();
     if(stopped)
       show_stop_window(nullptr);

@@ -39,11 +39,7 @@ namespace edloader
 
   auto loader_paths() -> void
     {
-    wchar_t path[MAX_PATH]{};
-    GetModuleFileNameW(self_module, path, MAX_PATH);
-    module_dir = path;
-    if(auto const slash{module_dir.find_last_of(L"\\/")}; slash != std::wstring::npos)
-      module_dir.resize(slash);
+    module_dir = edplugin_common::directory_of(edplugin_common::module_path(self_module));  // a long path too
     wchar_t sys[MAX_PATH]{};
     GetSystemDirectoryW(sys, MAX_PATH);
     system_element.name = stralgo::stl::merge(std::wstring_view{sys}, L"\\d3d11.dll"sv);
@@ -298,7 +294,7 @@ namespace edloader
                                                std::to_string(l.number), " are loaded)"sv).c_str());
         return;
         }
-      list_files.push_back(module_of(reinterpret_cast<void const *>(module)));
+      list_files.push_back(module_name_of(reinterpret_cast<void const *>(module)));
       {
       std::string const label{stralgo::stl::merge("after loading "sv, std::string_view{l.text})};
       guard_own_exports(label.c_str(), l.text.c_str());
@@ -384,8 +380,8 @@ namespace edloader
     log_line("edplugin_common {}", EDPLUGIN_COMMON_COMMIT);
     log_line("root: {}", wide(root_dir));
     // the plugins' own files: plugins made for edloader read these, without edloader they fall back to beside their dll
-    SetEnvironmentVariableW(L"EDLOADER_CONFIG_DIR", stralgo::stl::merge(root_dir, L"\\config"sv).c_str());
-    SetEnvironmentVariableW(L"EDLOADER_LOG_DIR", stralgo::stl::merge(root_dir, L"\\logs"sv).c_str());
+    SetEnvironmentVariableW(edplugin_common::edloader_config_dir_variable, stralgo::stl::merge(root_dir, L"\\config"sv).c_str());
+    SetEnvironmentVariableW(edplugin_common::edloader_log_dir_variable, stralgo::stl::merge(root_dir, L"\\logs"sv).c_str());
     guarded("start", [](char const *) { start_takers(); }, nullptr);
     guarded("own exports kept", [](char const *) { keep_own_exports(); }, nullptr);
     guarded("the list", [](char const *) { load_list(); }, nullptr);

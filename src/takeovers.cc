@@ -60,7 +60,7 @@ namespace edloader
   bool accept_takeover{};
   bool stopped{};
 
-  ///\brief the file names (no path, as module_of gives them) of the dlls edloader loaded from the list, chained or
+  ///\brief the file names (no path, as module_name_of gives them) of the dlls edloader loaded from the list, chained or
   /// not, each added before the checks that follow its loading
   std::vector<std::wstring> list_files;
 
@@ -192,7 +192,7 @@ namespace edloader
         {
         void const * const to{jump_target(now, w.function)};
         log_line("{}: kernelbase's {} starts differently now{}{}", when, w.name, to ? ", a jump to " : " (no jump read)",
-                 wide(to ? module_of(to).c_str() : L""));
+                 wide(to ? module_name_of(to).c_str() : L""));
         // 3Dmigoto hooks LoadLibraryExW for its own load_library_redirect; edloader's chain does not go through the
         // loader after the list is loaded, so this is said, not stopped for
         std::memcpy(w.prologue, now, sizeof now);
@@ -212,7 +212,7 @@ namespace edloader
       if(by_name)
         GetModuleFileNameW(by_name, got, MAX_PATH);
       log_line("{}: LoadLibrary(\"d3d11.dll\") from edloader gives {}{}; its D3D11CreateDevice is in {}", when, wide(got),
-               by_name == self_module ? " (edloader)" : "", wide(module_of(create)));
+               by_name == self_module ? " (edloader)" : "", wide(module_name_of(create)));
       }
     if(by_name)
       FreeLibrary(by_name);
@@ -228,10 +228,10 @@ namespace edloader
         void * const now{*w.slot};
         if(now != w.last)
           {
-          log_line("{}: the game's import of {} now leads to {} ({})", when, w.name, wide(module_of(now)), static_cast<void const *>(now));
-          if(module_of(now) != module_of(w.last))
-            take_over(stralgo::stl::merge(std::string_view{when}, ": "sv, narrow(module_of(now)), " took the game's import of "sv, std::string_view{w.name}),
-                      module_of(now));
+          log_line("{}: the game's import of {} now leads to {} ({})", when, w.name, wide(module_name_of(now)), static_cast<void const *>(now));
+          if(module_name_of(now) != module_name_of(w.last))
+            take_over(stralgo::stl::merge(std::string_view{when}, ": "sv, narrow(module_name_of(now)), " took the game's import of "sv, std::string_view{w.name}),
+                      module_name_of(now));
           w.last = now;
           }
         }
@@ -243,10 +243,10 @@ namespace edloader
           {
           void const * const to{jump_target(now, w.system)};
           log_line("{}: the system d3d11's {} starts differently now{}{}", when, w.name, to ? ", a jump to " : " (no jump read)",
-                   wide(to ? module_of(to).c_str() : L""));
+                   wide(to ? module_name_of(to).c_str() : L""));
           take_over(stralgo::stl::merge(std::string_view{when}, ": the system d3d11's "sv, std::string_view{w.name}, " was hooked inline"sv,
-                                        to ? stralgo::stl::merge(" (a jump to "sv, narrow(module_of(to)), ')') : std::string{}),
-                    to ? module_of(to) : std::wstring{});
+                                        to ? stralgo::stl::merge(" (a jump to "sv, narrow(module_name_of(to)), ')') : std::string{}),
+                    to ? module_name_of(to) : std::wstring{});
           std::memcpy(w.prologue, now, sizeof now);
           }
         }
@@ -415,7 +415,7 @@ namespace edloader
             void * const now{reinterpret_cast<void *>(slots->u1.Function)};
             if(now == real[i] or now == stub[i])
               break;
-            std::wstring const to{module_of(now)};
+            std::wstring const to{module_name_of(now)};
             if(_wcsicmp(to.c_str(), m.szModule) == 0)
               break;  // the module's own wrapper of its own import: not a takeover of others
             if(known_taker_t const * const k{known_taker(to)})
@@ -500,7 +500,7 @@ namespace edloader
           {
           void const * const to{jump_target(w.prologue, w.function)};
           log_line("before edloader started: kernelbase's {} differs from its file{}{} (said, not stopped for)", w.name,
-                   to ? " (a jump to " : "", wide(to ? (module_of(to) + L")").c_str() : L""));
+                   to ? " (a jump to " : "", wide(to ? (module_name_of(to) + L")").c_str() : L""));
           }
         else
           log_line("kernelbase's {} is as its file has it", w.name);
@@ -522,8 +522,8 @@ namespace edloader
           {
           void const * const to{jump_target(w.prologue, w.system)};
           take_over(stralgo::stl::merge("before edloader started: the system d3d11's "sv, std::string_view{w.name}, " differs from its file"sv,
-                                        to ? stralgo::stl::merge(" (a jump to "sv, narrow(module_of(to)), ')') : std::string{}),
-                    to ? module_of(to) : std::wstring{});
+                                        to ? stralgo::stl::merge(" (a jump to "sv, narrow(module_name_of(to)), ')') : std::string{}),
+                    to ? module_name_of(to) : std::wstring{});
           }
         else
           log_line("the system d3d11's {} is as its file has it", w.name);
@@ -531,7 +531,7 @@ namespace edloader
       if(w.slot)
         {
         w.last = *w.slot;
-        log_line("the game imports {} from d3d11.dll; it leads to {}", w.name, wide(module_of(w.last)));
+        log_line("the game imports {} from d3d11.dll; it leads to {}", w.name, wide(module_name_of(w.last)));
         }
       else
         log_line("the game does not import {} by name from d3d11.dll", w.name);

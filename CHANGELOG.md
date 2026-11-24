@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `USERPROFILE`, `EDLOADER_DIR` and the path of edloader's dll are taken whole over 259 characters (edplugin_common's
+  environment and paths; before, a longer value was taken for none and the root fell back). A module whose name
+  cannot be told is `?` in the log also when its path cannot be read (before, an empty name). The variables
+  `EDLOADER_CONFIG_DIR` and `EDLOADER_LOG_DIR` are named by edplugin_common, which the plugins read them by.
 - The log is edplugin_common's and holds one game session: at the start the last session's `edloader.log` is moved to
   `logs\edloader\edloader.<UTC>.log` (before, every session was appended to one file). It is written with Windows'
   own calls instead of a CRT stream: a thread killed at the game's exit in the middle of a write leaves no stream half

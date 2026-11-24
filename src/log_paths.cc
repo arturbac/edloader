@@ -56,13 +56,6 @@ namespace edloader
     }
 
 
-  auto environment(wchar_t const * name) -> std::wstring
-    {
-    wchar_t value[MAX_PATH]{};
-    DWORD const n{GetEnvironmentVariableW(name, value, MAX_PATH)};
-    return n != 0 and n < MAX_PATH ? std::wstring{value, n} : std::wstring{};
-    }
-
   auto make_dirs(std::wstring const & root) -> void
     {
     CreateDirectoryW(root.c_str(), nullptr);
@@ -77,9 +70,9 @@ namespace edloader
   /// so the place everyone looks first still shows where this run's files are.
   auto find_root_dir() -> std::wstring
     {
-    std::wstring const profile{environment(L"USERPROFILE")};
+    std::wstring const profile{edplugin_common::environment(L"USERPROFILE")};  // edplugin_common's: any length
     std::wstring const standard{profile.empty() ? module_dir : stralgo::stl::merge(profile, L"\\edloader"sv)};
-    std::wstring const lab{environment(L"EDLOADER_DIR")};
+    std::wstring const lab{edplugin_common::environment(L"EDLOADER_DIR")};
     if(lab.empty())
       return standard;
     make_dirs(standard);

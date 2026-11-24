@@ -20,32 +20,11 @@ namespace edloader
     }
 
   ///\brief the module an address lies in, by name; "?" when none
-  auto module_of(void const * address) -> std::wstring
+  auto module_name_of(void const * address) -> std::wstring
     {
-    HMODULE m{};
-    if(not address or not GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                                             static_cast<LPCWSTR>(address), &m))
-      return L"?";
-    wchar_t path[MAX_PATH]{};
-    GetModuleFileNameW(m, path, MAX_PATH);
-    std::wstring name{path};
-    if(auto const slash{name.find_last_of(L"\\/")}; slash != std::wstring::npos)
-      name.erase(0, slash + 1);
-    return name;
-    }
-
-  ///\brief whether `bytes` bytes at `p` can be read now (committed, readable, no guard page)
-  auto readable(void const * p, std::size_t bytes) noexcept -> bool
-    {
-    MEMORY_BASIC_INFORMATION info{};
-    if(VirtualQuery(p, &info, sizeof info) != sizeof info or info.State != MEM_COMMIT)
-      return false;
-    DWORD const readable_access{PAGE_READONLY | PAGE_READWRITE | PAGE_WRITECOPY | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE
-                                | PAGE_EXECUTE_WRITECOPY};
-    if(not(info.Protect & readable_access) or (info.Protect & PAGE_GUARD))
-      return false;
-    auto const end{static_cast<std::uint8_t const *>(info.BaseAddress) + info.RegionSize};
-    return static_cast<std::uint8_t const *>(p) + bytes <= end;
+    HMODULE const m{edplugin_common::module_of(address)};
+    std::wstring name{m ? edplugin_common::file_name_of(edplugin_common::module_path(m)) : std::wstring{}};
+    return name.empty() ? std::wstring{L"?"} : name;
     }
 
   ///\brief where a jump at the start of a function leads (E9 rel32, FF 25 [rip+rel32], 48 B8 imm64 + FF E0); null if
@@ -68,7 +47,7 @@ namespace edloader
       void const * target{};
       if(rel >= 0 and rel <= 2)
         std::memcpy(&target, p + 6 + rel, sizeof target);  // within the 16 bytes read: the copy holds it
-      else if(readable(slot, sizeof target))
+      else if(edplugin_common::readable(slot, sizeof target))
         std::memcpy(&target, slot, sizeof target);
       return target;
       }
