@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 1.4.0
+
+An antivirus's hook (Bitdefender's `bdhkm64.dll`) no longer cuts the list of mods.
 
 - A nested call from a dll of `pass_modules` (an antivirus's hook standing in a mod's own call; `bdhkm64.dll` by
   default, `pass_modules = a.dll, b.dll` in `edloader.txt`) or from code in no module, while a mod of the list is
