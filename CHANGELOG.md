@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- `d3d11.dll` has a version resource (VERSIONINFO: the version, `edloader`, its file name), the build's time as its time
+  stamp (`SOURCE_DATE_EPOCH`, else its commit's time) and the PDB named without the build's path; the same code
+  builds the same dll in the same build directory (edplugin_common baa684c).
 - A `+` with no dll after it is a mistake in the list (`MISCONFIGURATION: line N '+': a mark with no dll after it`),
   as `^` or `!` alone are: edloader then loads none of the list, as for the other mistakes, and the game runs without
   its mods; before, the line was taken for a dll named by the empty name, could not be loaded and was left out.
