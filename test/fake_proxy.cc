@@ -1,7 +1,8 @@
 // A stand-in d3d11 proxy for the chain test: notes its name in order.txt, then asks for "d3d11.dll" BY NAME
 // (as 3Dmigoto does) and calls its D3D11CreateDevice - which is edloader, which must pass it on. Built with
 // FAKE_SWAP it exports D3D11CreateDeviceAndSwapChain too, passed on the same way. Its DllMain notes its name in
-// loaded.txt: a list edloader refuses loads none of its dlls.
+// loaded.txt: a list edloader refuses loads none of its dlls. Built with FAKE_PASS it calls on through bdhkm64.dll's
+// pass_D3D11CreateDevice (test/fake_passer.cc, an antivirus's hook standing in its call) instead.
 #include <windows.h>
 
 #include <d3d11.h>
@@ -27,8 +28,13 @@ extern "C" HRESULT WINAPI fake_D3D11CreateDevice(
   ID3D11Device ** d, D3D_FEATURE_LEVEL * o, ID3D11DeviceContext ** c)
   {
   note();
+#ifdef FAKE_PASS
+  HMODULE const by_name{LoadLibraryW(L"bdhkm64.dll")};
+  auto const create{reinterpret_cast<create_device_fn>(GetProcAddress(by_name, "pass_D3D11CreateDevice"))};
+#else
   HMODULE const by_name{LoadLibraryW(L"d3d11.dll")};
   auto const create{reinterpret_cast<create_device_fn>(GetProcAddress(by_name, "D3D11CreateDevice"))};
+#endif
   return create ? create(a, t, s, f, l, n, v, d, o, c) : E_FAIL;
   }
 

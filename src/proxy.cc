@@ -57,6 +57,62 @@ namespace edloader
       entered |= 1u << i;
     }
 
+  ///\brief a module of pass_modules (an antivirus's hook standing in an element's own call), or nullptr: code in no
+  /// module (such a hook's own stub)
+  auto passed_by(HMODULE module) noexcept -> bool
+    {
+    if(module == nullptr)
+      return true;
+    // module_path and file_name_of give an empty name when it cannot be had (no memory, too long a path)
+    std::wstring const name{edplugin_common::file_name_of(edplugin_common::module_path(module))};
+    if(name.empty())
+      {
+      static bool said{};
+      if(not said)
+        {
+        said = true;
+        log_line("pass_modules: a module's name could not be read ({}); not passed over", static_cast<void const *>(module));
+        }
+      return false;
+      }
+    return edplugin_common::passed_over(name, pass_modules);
+    }
+
+  auto target_name(std::size_t at) -> std::wstring_view;
+
+  ///\brief once a session: a nested call passed over; the stack's first frame past edloader, the passed modules and code
+  /// in no module given as evidence only (the route does not depend on it), with whether it is the element's module
+  auto report_passed(char const * what, HMODULE caller) noexcept -> void
+    {
+    static bool reported{};
+    if(reported)
+      return;
+    reported = true;
+    try
+      {
+      void * frames[32]{};
+      USHORT const n{RtlCaptureStackBackTrace(0, 32, frames, nullptr)};
+      HMODULE past{};
+      for(USHORT i{}; i != n and past == nullptr; ++i)
+        {
+        HMODULE const m{edplugin_common::module_of(frames[i])};
+        if(m != nullptr and m != self_module and not passed_by(m))
+          past = m;
+        }
+      std::wstring const by{caller ? module_name_of(caller) : std::wstring{L"code in no module"}};
+      log_line("{}: nested call from {} (pass_modules) while chain[{}] {} is called: passed over, routed to {}; the stack's "
+               "first frame past it is in {}{}",
+               what, wide(by), calling, wide(chain[calling].name), wide(target_name(calling + 1)),
+               wide(past ? module_name_of(past) : std::wstring{L"no module"}),
+               past == nullptr ? "" : past == chain[calling].module ? " (that element)" : " (not that element)");
+      }
+    catch(...)
+      {
+      log_line("{}: nested call passed over (pass_modules) to chain[{}]; its line could not be made (no memory)", what,
+               calling + 1);
+      }
+    }
+
   ///\brief the element the call goes to (chain.size(): the system copy), from the element being called and the module
   /// that made it
   auto route(void * return_address, char const * what) noexcept -> std::size_t
@@ -89,17 +145,45 @@ namespace edloader
         }
     if(depth == 1)
       return 0;  // the game: the first element (the system copy when the list is empty)
+    // Nested, while an element is called, from a module of pass_modules or from code in no module: a hook standing in
+    // that element's own call, so the element calls on, through it. (An element calling on from another thread has
+    // no element being called there and goes to chain[0], as before: a known limit.)
+    if(calling < chain.size() and not listed and passed_by(caller))
+      {
+      note_entered(calling);
+      report_passed(what, caller);
+      return calling + 1;
+      }
     // Nested, from a module not in the list, or from a dll of the list at no place after the one being called: never
-    // back into the chain, which could only recurse.
+    // back into the chain, which could only recurse. A module not in the list while an element is called still means
+    // that element called on (not `did not call on`).
+    if(calling < chain.size() and not listed)
+      note_entered(calling);
     static bool reported{};
     if(not reported)
       {
       reported = true;
-      if(listed)
-        log_line("{}: nested call from a dll of the list ({}) at no place after chain[{}]; routed to the system copy", what,
-                 static_cast<void const *>(caller), calling);
-      else
-        log_line("{}: nested call from a module not in the list ({}); routed to the system copy", what, static_cast<void const *>(caller));
+      try
+        {
+        std::wstring const by{module_name_of(caller)};
+        if(listed)
+          log_line("{}: nested call from a dll of the list, {} ({}), at no place after chain[{}]; routed to the system copy",
+                   what, wide(by), static_cast<void const *>(caller), calling);
+        else if(calling < chain.size() and by != L"?")
+          log_line("{}: nested call from a module not in the list, {} ({}), while chain[{}] {} is called; routed to the "
+                   "system copy. If it is an antivirus's hook in that element's call, add it to edloader.txt: "
+                   "pass_modules = {}{}{}",
+                   what, wide(by), static_cast<void const *>(caller), calling, wide(chain[calling].name), wide(pass_modules),
+                   pass_modules.empty() ? "" : ", ", wide(by));
+        else
+          log_line("{}: nested call from a module not in the list, {} ({}); routed to the system copy", what, wide(by),
+                   static_cast<void const *>(caller));
+        }
+      catch(...)
+        {
+        log_line("{}: nested call from {}; routed to the system copy (its line could not be made: no memory)", what,
+                 static_cast<void const *>(caller));
+        }
       }
     return chain.size();
     }

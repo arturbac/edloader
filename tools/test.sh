@@ -23,6 +23,7 @@ EDWB=$EDWORLD_BUILD
 for f in "$BUILD/d3d11.dll" "$BUILD/test/fake_a.dll" "$BUILD/test/fake_b.dll" "$BUILD/test/fake_c.dll" "$BUILD/test/fake_intruder.dll" \
          "$BUILD/test/fake_swap.dll" "$BUILD/test/swap_app.exe" \
          "$BUILD/test/fake_hooker.dll" "$BUILD/test/fake_reshade.dll" "$BUILD/test/fake_jumper.dll" "$BUILD/test/fake_malformed.dll" \
+         "$BUILD/test/fake_p.dll" "$BUILD/test/fake_passer.dll" \
          "$EDWB/test/edworld/test_app.exe" "$EDWB/edworld/edworld.dll" \
          "$EDWB/test/test_foreign.dll"; do
   [[ -f $f ]] || { echo "$0: no $f (build first)" >&2; exit 1; }
@@ -57,6 +58,11 @@ grep -q "PASSED" test_app.out || fail "edworld checks through the chain"
 # the game's device and then the overlay's, each down the whole list
 [[ $(tr '\n' ' ' < order.txt) == "fake_a fake_b "* ]] || fail "order '$(tr '\n' ' ' < order.txt)'"
 grep -q "hr 0x00000000 through 3 element(s)" "$ROOT/logs/edloader.log" || fail "chain of 3"
+for own in D3D11CreateDevice D3D11CreateDeviceAndSwapChain; do
+  grep -qF "edloader's own $own is as its file has it" "$ROOT/logs/edloader.log" \
+    || fail "edloader's own $own compared with its file at start"
+done
+! grep -q "edloader's own .* differs from its file" "$ROOT/logs/edloader.log" || fail "edloader's own export differs, no hook"
 ! grep -qE "window (made|shown|closed|not)" "$ROOT/logs/edloader.log" || fail "a window without a stop"
 [[ -s $ROOT/logs/edworld.log ]] || fail "edworld.log not in logs"
 for f in edloader.log edworld.log edloader.txt; do [[ ! -e $GAME/$f ]] || fail "$f beside the game"; done
@@ -141,7 +147,7 @@ set +e
 wine_common_exec -- test_app.exe > test_app_reshade.out
 set -e
 echo "--- edloader.log, ReShade"; cat "$ROOT/logs/edloader.log"
-grep -q "the system d3d11's D3D11CreateDevice was hooked inline (a jump to ?); ReShade is loaded (fake_reshade.dll), a known taker: accepted" \
+grep -q "the system d3d11's D3D11CreateDevice was hooked inline (a jump to ? then a jump to fake_reshade.dll); ReShade is loaded (fake_reshade.dll), a known taker: accepted" \
   "$ROOT/logs/edloader.log" || fail "ReShade accepted as a known taker"
 ! grep -q "edloader stops" "$ROOT/logs/edloader.log" || fail "edloader stopped at ReShade"
 [[ $(grep -c "a known taker: accepted" "$ROOT/logs/edloader.log") == 1 ]] || fail "ReShade told more than once"
@@ -162,6 +168,38 @@ grep -q "the system d3d11's D3D11CreateDevice was hooked inline (a jump to fake_
   "$ROOT/logs/edloader.log" || fail "a relative jump read from the function's address"
 ! grep -q ": failed (" "$ROOT/logs/edloader.log" || fail "a step of edloader failed"
 [[ $(tr '\n' ' ' < order.txt) == "fake_a jumper "* ]] || fail "order with a jumper '$(tr '\n' ' ' < order.txt)'"
+# an antivirus's hook standing in a mod's own call (Bitdefender's bdhkm64.dll): fake_p calls on through bdhkm64.dll,
+# so the nested call comes from it; passed over (pass_modules, bdhkm64.dll by default), it goes on to the next element;
+# with pass_modules empty, to the system copy, the log naming the line to add. bdhkm64.dll stays beside the game: only
+# fake_p loads it
+cp "$BUILD/test/fake_p.dll" "$ROOT/plugins/"
+cp "$BUILD/test/fake_passer.dll" "$GAME/bdhkm64.dll"
+for pass in default none; do
+  : > order.txt
+  : > "$ROOT/logs/edloader.log"
+  printf 'fake_p.dll\nfake_b.dll\n' > "$ROOT/edloader.txt"
+  if [[ $pass == none ]]; then echo "pass_modules =" >> "$ROOT/edloader.txt"; fi
+  set +e
+  wine_common_exec -- test_app.exe > "test_app_pass_$pass.out"
+  set -e
+  echo "--- edloader.log, pass_modules $pass"; cat "$ROOT/logs/edloader.log"
+  if [[ $pass == default ]]; then
+    grep -qF "pass_modules = bdhkm64.dll (by default)" "$ROOT/logs/edloader.log" || fail "pass_modules by default logged"
+    grep -qF "D3D11CreateDevice: nested call from bdhkm64.dll (pass_modules) while chain[0] fake_p.dll is called: passed over, routed to fake_b.dll; the stack's first frame past it is in fake_p.dll (that element)" \
+      "$ROOT/logs/edloader.log" || fail "a nested call from bdhkm64.dll passed over, with the stack's evidence"
+    [[ $(tr '\n' ' ' < order.txt) == "fake_p fake_b "* ]] || fail "pass_modules: order '$(tr '\n' ' ' < order.txt)'"
+    grep -q "hr 0x00000000 through 2 element(s)" "$ROOT/logs/edloader.log" || fail "pass_modules: the device made"
+    ! grep -q "fake_p.dll did not call on" "$ROOT/logs/edloader.log" || fail "pass_modules: fake_p taken for not calling on"
+  else
+    grep -qE "^.{24} pass_modules = $" "$ROOT/logs/edloader.log" || fail "pass_modules empty logged"
+    grep -qF "nested call from a module not in the list, bdhkm64.dll (" "$ROOT/logs/edloader.log" \
+      || fail "no pass_modules: the nested call from bdhkm64.dll named"
+    grep -qF "while chain[0] fake_p.dll is called; routed to the system copy. If it is an antivirus's hook in that element's call, add it to edloader.txt: pass_modules = bdhkm64.dll" \
+      "$ROOT/logs/edloader.log" || fail "no pass_modules: the line to add"
+    [[ $(head -n 2 order.txt | tr '\n' ' ') != "fake_p fake_b " ]] || fail "no pass_modules: fake_b called"
+    ! grep -q "fake_p.dll did not call on" "$ROOT/logs/edloader.log" || fail "no pass_modules: fake_p taken for not calling on"
+  fi
+done
 # a module whose image is out of shape while loaded (its imports past its end, its headers' page without rights):
 # edloader's scans pass it over with a line once, no step fails, the process ends by itself and the chain works
 cp "$BUILD/test/fake_malformed.dll" "$ROOT/plugins/"

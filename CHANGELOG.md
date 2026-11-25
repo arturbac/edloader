@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- A nested call from a dll of `pass_modules` (an antivirus's hook standing in a mod's own call; `bdhkm64.dll` by
+  default, `pass_modules = a.dll, b.dll` in `edloader.txt`) or from code in no module, while a mod of the list is
+  called, goes to the mod after it, as that mod calling on (before, to the system d3d11, so the mods after it were
+  skipped); said once, with the stack's first frame past it as evidence. The list used is logged at start.
+- A nested call from a module not in the list names the module (before, its address only) and, while a mod is called,
+  the `pass_modules` line to add.
+- A jump into memory of no module is followed once: the log names the module of the stub's own jump (`? then a jump to
+  <dll>`) or gives its 16 bytes. Five more forms of jump are read (`mov r11, imm64; jmp r11`, `mov r10, imm64; jmp
+  r10`, `mov rax, imm64; push rax; ret`, `push imm32; ret`, `push; mov [rsp+4]; ret`). At start edloader's own exports
+  are compared with its file: a hook there is said, not put back.
 - `d3d11.dll` has a version resource (VERSIONINFO: the version, `edloader`, its file name), the build's time as its time
   stamp (`SOURCE_DATE_EPOCH`, else its commit's time) and the PDB named without the build's path; the same code
   builds the same dll in the same build directory (edplugin_common baa684c).

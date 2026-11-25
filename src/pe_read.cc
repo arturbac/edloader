@@ -27,7 +27,8 @@ namespace edloader
     return name.empty() ? std::wstring{L"?"} : name;
     }
 
-  ///\brief where a jump at the start of a function leads (E9 rel32, FF 25 [rip+rel32], 48 B8 imm64 + FF E0); null if
+  ///\brief where a jump at the start of a function leads (E9 rel32, FF 25 [rip+rel32], 48 B8 imm64 + FF E0, 49 BB imm64
+  /// + 41 FF E3, 49 BA imm64 + 41 FF E2, 48 B8 imm64 + 50 C3, 68 imm32 + C3, 68 imm32 + C7 44 24 04 imm32 + C3); null if
   /// none. `p` holds the function's first bytes as read (a copy), `origin` is where the function itself starts: the
   /// relative forms count from the function, not from the copy. The pointer of FF 25 is read only when readable
   auto jump_target(std::uint8_t const * p, void const * origin) -> void const *
@@ -57,7 +58,63 @@ namespace edloader
       std::memcpy(&target, p + 2, sizeof target);
       return target;
       }
+    if((p[0] == 0x49 and p[1] == 0xBB and p[10] == 0x41 and p[11] == 0xFF and p[12] == 0xE3)     // mov r11, imm64; jmp r11
+       or (p[0] == 0x49 and p[1] == 0xBA and p[10] == 0x41 and p[11] == 0xFF and p[12] == 0xE2)  // mov r10, imm64; jmp r10
+       or (p[0] == 0x48 and p[1] == 0xB8 and p[10] == 0x50 and p[11] == 0xC3))                   // mov rax, imm64; push rax; ret
+      {
+      void const * target;
+      std::memcpy(&target, p + 2, sizeof target);
+      return target;
+      }
+    if(p[0] == 0x68 and p[5] == 0xC7 and p[6] == 0x44 and p[7] == 0x24 and p[8] == 0x04 and p[13] == 0xC3)
+      {
+      // push imm32 (the low half); mov dword [rsp+4], imm32 (the high half); ret
+      std::uint32_t low, high;
+      std::memcpy(&low, p + 1, 4);
+      std::memcpy(&high, p + 9, 4);
+      return reinterpret_cast<void const *>((std::uint64_t{high} << 32) | low);
+      }
+    if(p[0] == 0x68 and p[5] == 0xC3)
+      {
+      // push imm32 (sign-extended to 64 bits); ret
+      std::int32_t value;
+      std::memcpy(&value, p + 1, 4);
+      return reinterpret_cast<void const *>(static_cast<std::intptr_t>(value));
+      }
     return nullptr;
+    }
+
+  auto jump_place(void const * to) -> std::string
+    {
+    std::wstring const name{module_name_of(to)};
+    if(name != L"?")
+      return narrow(name);
+    std::uint8_t bytes[16]{};
+    void const * second{};
+    edplugin_common::fault_t fault;
+    if(not edplugin_common::readable(to, sizeof bytes))
+      return "? (not readable)";
+    // the stub's bytes and the pointer a FF 25 there reads, both under the guard: a hook's memory may go meanwhile
+    if(not edplugin_common::run_guarded(
+         [&]
+         {
+           std::memcpy(bytes, to, sizeof bytes);
+           second = jump_target(bytes, to);
+         },
+         fault))
+      {
+      char line[320];
+      return "? (a fault reading it: " + std::string{edplugin_common::fault_line(fault, line)} + ")";
+      }
+    if(second)
+      return "? then a jump to " + narrow(module_name_of(second));
+    std::string text{"? ("};
+    for(std::uint8_t const b: bytes)
+      {
+      text += std::format("{:02X} ", b);
+      }
+    text.back() = ')';
+    return text;
     }
 
   ///\brief the game exe's import slots of the two device functions from d3d11.dll, once

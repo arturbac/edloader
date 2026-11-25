@@ -17,6 +17,7 @@ namespace edloader
   using namespace std::string_view_literals;
 
   bool misconfigured{};
+  std::wstring pass_modules{edplugin_common::default_pass_modules};
 
   auto loader_paths() -> void;
 
@@ -213,6 +214,7 @@ namespace edloader
     if(not text_lines.empty() and text_lines.front().starts_with("\xEF\xBB\xBF"))
       text_lines.front().erase(0, 3);  // a byte order mark, as Notepad writes one
     // the settings first, wherever they stand in the list: they decide what a takeover while loading does
+    bool pass_modules_set{};
     for(std::string const & l: text_lines)
       {
       std::string_view const text{content(l)};
@@ -225,9 +227,15 @@ namespace edloader
         accept_takeover = value == "true" or value == "1" or value == "yes";
         log_line("accept_takeover = {}", accept_takeover ? "true: a takeover is logged and the list still passed on" : "false");
         }
+      else if(key == "pass_modules")
+        {
+        pass_modules = widen(value);
+        pass_modules_set = true;
+        }
       else
         log_line("unknown setting '{}' ignored", key);
       }
+    log_line("pass_modules = {}{}", wide(pass_modules), pass_modules_set ? "" : " (by default)");
     // a takeover before the list told to add accept_takeover, which the list has: no longer the window's to say
     if(accept_takeover)
       forget_stop_lines();

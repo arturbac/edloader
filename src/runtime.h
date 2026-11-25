@@ -9,6 +9,7 @@
 #include <edplugin_common/guard/guard.h>
 #include <edplugin_common/log/log.h>
 #include <edplugin_common/memory/memory.h>
+#include <edplugin_common/memory/pass_modules.h>
 #include <edplugin_common/memory/pe.h>
 #include <edplugin_common/paths/paths.h>
 #include <edplugin_common/text/format.h>

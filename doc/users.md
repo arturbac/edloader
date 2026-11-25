@@ -31,7 +31,7 @@ page.
    !d3d11_edvr.dll       # last, after EDHM, see "EDHM and EDVR" below
    ```
 
-   A line with `=` is a setting, not a mod; the only one is `accept_takeover` (below).
+   A line with `=` is a setting, not a mod: `accept_takeover` and `pass_modules` (below).
 
    A mark before a name puts that mod at an end of the list, wherever its line stands: `^` first (it sees the game's
    own calls), `!` last (right before the system d3d11), `^!` both (one dll at both ends). A mod's own documentation
@@ -126,6 +126,31 @@ in the game's folder, an overlay, a security program). edloader starts at the ga
 starts, so such a hook is often there already; the log says `before edloader started:` or names no mod of the list,
 and there is nothing to remove from the list. Add `accept_takeover = true` to `edloader.txt` then. While edloader is
 stopped, its device lines say `through 0 element(s) (edloader stopped by a TAKEOVER: the list skipped)`.
+
+## An antivirus between the mods: pass_modules
+
+Some security programs put their own code in every call a program makes for a graphics device, a mod's call to
+the next mod too (Bitdefender's `bdhkm64.dll`, seen in a player's log). Then the call reaches edloader from that
+program's dll instead of from the mod, and edloader cannot tell which mod called on. edloader passes such a dll
+over: the mod it was calling calls on, and the call goes to the next mod of the list. `bdhkm64.dll` is passed over
+by default, and the log says which list is used (`pass_modules = bdhkm64.dll (by default)`); once a session a line
+`nested call from bdhkm64.dll (pass_modules) while chain[N] <mod> is called: passed over` says it happened.
+
+Another such program shows in the log as `nested call from a module not in the list, <its dll> (...), while
+chain[N] <mod> is called; routed to the system copy`, with the line to add. Add it to `edloader.txt`, keeping the
+names already there, separated by commas (a `;` or `#` starts a comment, so not between names; with two such lines
+the last one counts):
+
+```
+pass_modules = bdhkm64.dll, <its dll>
+```
+
+Do not add a mod of the list or an overlay there. `pass_modules =` with nothing after it passes no dll over. A call
+from code in no dll at all (such a program's own piece of code in memory) is passed over the same way, always.
+
+At the start the log also compares edloader's own `D3D11CreateDevice` with its file (`edloader's own
+D3D11CreateDevice is as its file has it`); a security program that hooked it shows as `differs from its file` with
+where its jump leads. edloader only says so: it does not undo such a hook.
 
 ## The Epic Games Store: Epic's overlay
 

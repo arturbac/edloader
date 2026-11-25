@@ -48,8 +48,16 @@ How edloader chains d3d11 proxies, what a plugin can rely on, and how edloader i
   `did not call on` it counts as having called on.
 - An element that sends its call to the system copy itself (its own setting) ends the chain there; after the
   outermost call edloader logs `did not call on` with its name.
-- A nested call from a module not in the list (for example a dll an element loads by its own path) goes to the
-  system copy, never back into the chain.
+- A nested call while an element is called, from a module of `pass_modules` (`edloader.txt`, edplugin_common's
+  `default_pass_modules` by default: `bdhkm64.dll`) or from code in no module, is that element calling on through an
+  antivirus's hook: it goes to the element after it, and is said once with the stack's first frame past edloader, the
+  passed modules and code in no module, and whether it is that element's module (evidence only, the route does not
+  depend on it). An element calling on from another thread has no element being called there and goes to chain[0]:
+  a known limit. `fake_p` (`test/fake_proxy.cc` with `FAKE_PASS`) and `test/fake_passer.cc` (copied as
+  `bdhkm64.dll`) stand in for it.
+- Any other nested call from a module not in the list (for example a dll an element loads by its own path) goes to
+  the system copy, never back into the chain; its line names the module and, while an element is called, the
+  `pass_modules` line to add.
 
 ## Takeovers
 
@@ -60,12 +68,17 @@ by an inline hook on the system copy's function. edloader cannot prevent either,
 - At start it logs the modules already in the process, where the game's imports of `D3D11CreateDevice` and
   `D3D11CreateDeviceAndSwapChain` lead, and compares the system copy's first 16 bytes of each with the dll's file
   on disk (export table, file offset; a relocation inside those bytes makes them not comparable, and says so). A
-  hook made before edloader started shows there.
+  hook made before edloader started shows there. edloader's own two exports are compared with its own file the same
+  way: a hook in them before the list loads (an antivirus's) is said (`edloader's own ... differs from its file`),
+  not put back.
 - After each dll of the list and at each device the game asks for, it compares the import and the bytes with the
   last check; a change is a `TAKEOVER:` line naming the module the import or the jump now leads to. Where a jump
-  leads (`jump_target`: `E9 rel32`, `FF 25 [rip+rel32]`, `48 B8 imm64` + `FF E0`) is counted from the function's own
-  address, not from the copy of its bytes; the pointer of `FF 25` is read only from readable memory
-  (`test/fake_jumper.cc`: a `FF 25` hook whose pointer lies far from the function, the log naming the dll).
+  leads (`jump_target`: `E9 rel32`, `FF 25 [rip+rel32]`, `48 B8 imm64` + `FF E0`, `49 BB imm64` + `41 FF E3`, `49 BA imm64`
+  + `41 FF E2`, `48 B8 imm64` + `50 C3`, `68 imm32` + `C3`, `68 imm32` + `C7 44 24 04 imm32` + `C3`) is counted from the function's own address, not from the copy
+  of its bytes; the pointer of `FF 25` is read only from readable memory (`test/fake_jumper.cc`: a `FF 25` hook whose
+  pointer lies far from the function, the log naming the dll). A jump into memory of no module (`?`, a hook's own
+  stub) is followed once (`jump_place`): the stub's 16 bytes, read when readable and under the guard, name the module
+  of its own jump (`? then a jump to <dll>`) or are given in hex; a fault reading them is named.
 - Reading the file on disk checks every offset against the file (a cut or damaged dll is "not comparable").
 - edloader's own steps in the game's process (the start, the list, the checks at each device) each run under
   edplugin_common's guard (`run_guarded`), which catches hardware faults and C++ exceptions alike: the step is logged

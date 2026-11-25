@@ -7,6 +7,9 @@ namespace edloader
   {
   ///\brief the list's own errors stopped edloader (marks, one dll twice in the chain): accept_takeover does not lift it
   extern bool misconfigured;
+  ///\brief the modules passed over when a nested call tells which element calls on (an antivirus's hooks standing in
+  /// the chain's own calls): edloader.txt's `pass_modules = a.dll, b.dll`, edplugin_common's list by default
+  extern std::wstring pass_modules;
 
   ///\brief one of edloader's own steps under a handler of hardware faults and C++ exceptions: logged and skipped
   auto guarded(char const * what, void (*step)(char const *), char const * when) noexcept -> bool;

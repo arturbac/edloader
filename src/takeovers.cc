@@ -199,7 +199,7 @@ namespace edloader
         {
         void const * const to{jump_target(now, w.function)};
         log_line("{}: kernelbase's {} starts differently now{}{}", when, w.name, to ? ", a jump to " : " (no jump read)",
-                 wide(to ? module_name_of(to).c_str() : L""));
+                 to ? jump_place(to) : std::string{});
         // 3Dmigoto hooks LoadLibraryExW for its own load_library_redirect; edloader's chain does not go through the
         // loader after the list is loaded, so this is said, not stopped for
         std::memcpy(w.prologue, now, sizeof now);
@@ -250,9 +250,9 @@ namespace edloader
           {
           void const * const to{jump_target(now, w.system)};
           log_line("{}: the system d3d11's {} starts differently now{}{}", when, w.name, to ? ", a jump to " : " (no jump read)",
-                   wide(to ? module_name_of(to).c_str() : L""));
+                   to ? jump_place(to) : std::string{});
           take_over(stralgo::stl::merge(std::string_view{when}, ": the system d3d11's "sv, std::string_view{w.name}, " was hooked inline"sv,
-                                        to ? stralgo::stl::merge(" (a jump to "sv, narrow(module_name_of(to)), ')') : std::string{}),
+                                        to ? stralgo::stl::merge(" (a jump to "sv, jump_place(to), ')') : std::string{}),
                     to ? module_name_of(to) : std::wstring{});
           std::memcpy(w.prologue, now, sizeof now);
           }
@@ -538,6 +538,41 @@ namespace edloader
     log_modules();
     find_game_imports();
     own_create = reinterpret_cast<void *>(GetProcAddress(self_module, "D3D11CreateDevice"));
+    // edloader's own exports against its file: a hook made in them before the list loads (an antivirus's, at the
+    // dll's load) is said, not put back (undoing an antivirus's hook could fight its protection or end the game). An
+    // exception here ends only this part: the start's other checks go on
+    try
+      {
+      wchar_t self_path[MAX_PATH]{};
+      DWORD const got{GetModuleFileNameW(self_module, self_path, MAX_PATH)};
+      if(got == 0 or got >= MAX_PATH)
+        log_line("edloader's own exports cannot be compared with its file (its path not read, error {})", GetLastError());
+      else
+        for(char const * const name: {"D3D11CreateDevice", "D3D11CreateDeviceAndSwapChain"})
+          {
+          void const * const function{reinterpret_cast<void const *>(GetProcAddress(self_module, name))};
+          if(function == nullptr)
+            continue;
+          std::uint8_t now[16];
+          std::memcpy(now, function, sizeof now);
+          std::uint8_t disk[16];
+          std::wstring why;
+          if(not bytes_on_disk(self_path, name, disk, why))
+            log_line("edloader's own {} cannot be compared with its file ({})", name, wide(why));
+          else if(std::memcmp(disk, now, sizeof disk) != 0)
+            {
+            void const * const to{jump_target(now, function)};
+            log_line("at start: edloader's own {} differs from its file{}{} (said, not put back)", name,
+                     to ? " (a jump to " : "", to ? jump_place(to) + ')' : std::string{});
+            }
+          else
+            log_line("edloader's own {} is as its file has it", name);
+          }
+      }
+    catch(std::exception const & e)
+      {
+      log_line("edloader's own exports not compared with its file: {}", e.what());
+      }
     if(HMODULE const kernelbase{GetModuleHandleW(L"kernelbase.dll")})
       {
       wchar_t path[MAX_PATH]{};
@@ -556,7 +591,7 @@ namespace edloader
           {
           void const * const to{jump_target(w.prologue, w.function)};
           log_line("before edloader started: kernelbase's {} differs from its file{}{} (said, not stopped for)", w.name,
-                   to ? " (a jump to " : "", wide(to ? (module_name_of(to) + L")").c_str() : L""));
+                   to ? " (a jump to " : "", to ? jump_place(to) + ')' : std::string{});
           }
         else
           log_line("kernelbase's {} is as its file has it", w.name);
@@ -578,7 +613,7 @@ namespace edloader
           {
           void const * const to{jump_target(w.prologue, w.system)};
           take_over(stralgo::stl::merge("before edloader started: the system d3d11's "sv, std::string_view{w.name}, " differs from its file"sv,
-                                        to ? stralgo::stl::merge(" (a jump to "sv, narrow(module_name_of(to)), ')') : std::string{}),
+                                        to ? stralgo::stl::merge(" (a jump to "sv, jump_place(to), ')') : std::string{}),
                     to ? module_name_of(to) : std::wstring{});
           }
         else
